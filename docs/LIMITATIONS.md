@@ -28,6 +28,23 @@ This version:
   -conditioned backdoors requires GPU fine-tuning and produces dual-use
   artifacts we intentionally avoid.
 
+## The real-model backdoor is a benign synthetic plant, not a trained attack
+
+No public quantization-conditioned backdoor *checkpoint* exists to download (the
+ETH attack ships code that trains one on GPU — a weaponization we avoid). To
+evaluate the detector beyond the toy zoo, `realfix.py` plants a backdoor into a
+real model (e.g. SmolLM2-135M) with a **benign payload**: it edits one tied
+embedding row, via construct-and-verify against the shared int8 fake-quant, so a
+single harmless marker token wins *only after quantization* and *only on a
+trigger prompt*. This reproduces the ETH rounding-boundary mechanism on a real
+model, with no training, no GPU, and no harmful behavior.
+
+It is therefore a *semi-real* evaluation: real model, real quantization, real
+forward pass, benign/synthetic trigger. The plant is more surgical than a real
+trained attack and is a lower bound on difficulty, not a faithful adversary. A
+trained attack distributes its effect across many weights and behaviors; a
+detector that catches this plant has not been shown to catch those.
+
 ## Baseline assumptions
 
 The normal-deviation baseline assumes the benign-model drift distribution is
