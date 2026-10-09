@@ -58,6 +58,12 @@ class HFModel:
 
         Prefer the lm_head weight, plus the final decoder layer's MLP
         down-projection (keys containing "mlp"/"down_proj"/"c_proj").
+
+        Many small models (SmolLM2, Llama-style) *tie* the output projection to
+        the input embedding, so `lm_head.weight` is absent from
+        `named_parameters()` (it aliases `embed_tokens.weight`). In that case we
+        fall back to the embedding weight, which is the real tensor the output
+        logits are computed from — still the right security-relevant target.
         """
         names = [n for n, _ in self._model.named_parameters()]
         picked: list[str] = []
@@ -65,6 +71,12 @@ class HFModel:
         head = next(
             (n for n in names if "lm_head" in n and n.endswith("weight")), None
         )
+        if head is None:
+            # Tied-embedding fallback: the output head aliases the input embed.
+            head = next(
+                (n for n in names if "embed_tokens" in n and n.endswith("weight")),
+                None,
+            )
         if head is not None:
             picked.append(head)
 

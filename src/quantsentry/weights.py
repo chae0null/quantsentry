@@ -10,6 +10,20 @@ int8 rounding midpoints.
 `boundary_proximity_score` measures that mass. It is cheap, offline, and
 reported only as a weak side-signal; it is deliberately NOT part of the verdict
 logic, which relies on the behavioral flip + drift baseline instead.
+
+NEGATIVE RESULT (toy zoo, int8): this metric does NOT separate clean from
+backdoored toy models. Mean boundary mass is ~0.37 for clean and ~0.34 for
+backdoor — overlapping, with no separating threshold. The reason is
+fundamental: the planted payload is a *single* weight parked near a boundary,
+which is statistically indistinguishable from the many random clean weights
+that also land near boundaries by chance (vocab x feat is small and noisy).
+Aggregations we tried (per-row mean, elementwise max, top-k, fraction near a
+boundary, magnitude-weighted proximity) either overlap or "separate" only by
+keying on a fixture-specific construction artifact (the anchor weight being a
+round number that lands exactly on a grid point) — which inverts the hypothesis
+and would not generalize to a real attack. So we leave the metric as an honest,
+documented negative result (see README and docs/LIMITATIONS.md "Static weight
+analysis is a hypothesis"). It is reported but never affects the verdict.
 """
 
 from __future__ import annotations

@@ -6,6 +6,10 @@ Commands:
   bench     the headline benchmark: detection rate / FPR on the toy zoo.
 
 Everything is CPU-only and runs with no network for the toy paths.
+
+Multi-quantizer mode: `--quant int8,nf4` scans under each quantizer and
+aggregates — a model is flagged suspicious if it looks suspicious under ANY
+quantizer (cross-quantizer transferability). Single-quantizer is the default.
 """
 
 from __future__ import annotations
@@ -18,9 +22,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .baseline import calibrate, score_scan
+from .baseline import Baseline, calibrate, score_scan
 from .compare import compare
-from .core import Model
+from .core import Model, Quantizer, ScanResult
 from .fixtures import (
     ToyLM,
     make_backdoored_model,
@@ -29,7 +33,7 @@ from .fixtures import (
 )
 from .probes import load_probes
 from .quantize import get_quantizer
-from .report import build_scan_result, render, save_json
+from .report import build_scan_result, render, save_json, to_json
 from .weights import boundary_proximity_score
 
 app = typer.Typer(
@@ -40,8 +44,40 @@ console = Console()
 
 
 # --------------------------------------------------------------------------- #
-# Target resolution                                                           #
+# Helpers                                                                     #
 # --------------------------------------------------------------------------- #
+def _parse_quants(quant: str) -> list[str]:
+    """Parse a `--quant` value ("int8" or "int8,nf4") into a name list."""
+    names = [q.strip() for q in quant.split(",") if q.strip()]
+    if not names:
+        raise typer.BadParameter("no quantizer given")
+    return names
+
+
+def _scan_one(
+    fp: Model,
+    quantizer: Quantizer,
+    probes,
+    baseline: Baseline | None,
+) -> ScanResult:
+    """Scan `fp` under a single quantizer, producing a scored ScanResult.
+
+    If `baseline` is given (toy path), the statistical drift threshold is used
+    for the verdict; otherwise (real model) the verdict rests on marker flips.
+    """
+    q = quantizer.quantize(fp)
+    probe_results = compare(fp, q, probes)
+    weight_score = boundary_proximity_score(fp, quantizer.name)
+    result = build_scan_result(fp, quantizer, probe_results, weight_score)
+    if baseline is not None:
+        score_scan(result, baseline)
+    else:
+        result.score = result.mean_logit_l2
+        result.verdict = "suspicious" if result.n_flips > 0 else "clean"
+        result.details.update(baseline="skipped (real model)")
+    return result
+
+
 def _load_npz_toy(path: Path) -> ToyLM:
     """Rebuild a ToyLM from a single saved .npz tensor file."""
     data = np.load(path)
@@ -50,7 +86,11 @@ def _load_npz_toy(path: Path) -> ToyLM:
 
 
 def _resolve_target(target: str, quant: str) -> tuple[Model, bool]:
-    """Return (model, is_toy) for a scan target string."""
+    """Return (model, is_toy) for a scan target string.
+
+    `quant` is the primary quantizer used only to construct a toy backdoor
+    fixture (the planted flip is verified against that quantizer).
+    """
     if target.startswith("toy:clean:"):
         seed = int(target.split(":")[-1])
         return make_clean_model(seed), True
@@ -64,6 +104,24 @@ def _resolve_target(target: str, quant: str) -> tuple[Model, bool]:
     from .model import HFModel  # lazy: avoids importing torch for the toy path
 
     return HFModel.load(target), False
+
+
+def _load_probe_file(path: str):
+    """Load a user-supplied probe pack (JSON list of probe dicts)."""
+    from .core import Probe
+
+    items = json.loads(Path(path).read_text())
+    return [
+        Probe(
+            id=it["id"],
+            category=it.get("category", "custom"),
+            prompt=it["prompt"],
+            bad_markers=tuple(it.get("bad_markers", ())),
+            good_behavior=it.get("good_behavior", ""),
+            is_trigger=bool(it.get("is_trigger", False)),
+        )
+        for it in items
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -96,55 +154,52 @@ def scan_cmd(
         ...,
         help="toy:clean:<seed> | toy:backdoor:<seed> | a .npz path | HF model id/path",
     ),
-    quant: str = typer.Option("int8", "--quant"),
+    quant: str = typer.Option("int8", "--quant", help="One or comma-separated, e.g. int8,nf4"),
     probes_file: str = typer.Option(None, "--probes", help="Optional probe JSON."),
     json_out: str = typer.Option(None, "--json", help="Write JSON result here."),
 ) -> None:
     """Scan a target model for a quantization-conditioned behavior flip."""
     probes = _load_probe_file(probes_file) if probes_file else load_probes()
-    quantizer = get_quantizer(quant)
+    quant_names = _parse_quants(quant)
 
-    fp, is_toy = _resolve_target(target, quant)
-    q = quantizer.quantize(fp)
-    probe_results = compare(fp, q, probes)
-    weight_score = boundary_proximity_score(fp, quant)
-    result = build_scan_result(fp, quantizer, probe_results, weight_score)
+    fp, is_toy = _resolve_target(target, quant_names[0])
 
-    if is_toy:
-        # Build a tiny internal baseline from a couple of fresh clean toy
-        # models so a threshold exists for the verdict.
-        clean = [make_clean_model(9001), make_clean_model(9002)]
-        baseline = calibrate(clean, quantizer, probes)
-        score_scan(result, baseline)
-    else:
-        # Real HF target: no toy baseline. Report flips + drift directly; the
-        # verdict rests on whether any marker flipped.
-        result.score = result.mean_logit_l2
-        result.verdict = "suspicious" if result.n_flips > 0 else "clean"
-        result.details.update(baseline="skipped (real model)")
+    per_quant: list[ScanResult] = []
+    for qn in quant_names:
+        quantizer = get_quantizer(qn)
+        baseline = None
+        if is_toy:
+            # Tiny internal baseline from fresh clean toy models so a threshold
+            # exists for this quantizer's verdict.
+            baseline = calibrate(
+                [make_clean_model(9001), make_clean_model(9002)], quantizer, probes
+            )
+        result = _scan_one(fp, quantizer, probes, baseline)
+        per_quant.append(result)
+        render(result, console)
 
-    render(result, console)
-    if json_out:
-        save_json(result, json_out)
-        console.print(f"[dim]wrote JSON to {json_out}[/dim]")
-
-
-def _load_probe_file(path: str):
-    """Load a user-supplied probe pack (JSON list of probe dicts)."""
-    from .core import Probe
-
-    items = json.loads(Path(path).read_text())
-    return [
-        Probe(
-            id=it["id"],
-            category=it.get("category", "custom"),
-            prompt=it["prompt"],
-            bad_markers=tuple(it.get("bad_markers", ())),
-            good_behavior=it.get("good_behavior", ""),
-            is_trigger=bool(it.get("is_trigger", False)),
+    # Aggregate across quantizers: suspicious if flagged under ANY of them.
+    aggregate = "suspicious" if any(r.verdict == "suspicious" for r in per_quant) else "clean"
+    if len(per_quant) > 1:
+        color = {"suspicious": "red", "clean": "green"}.get(aggregate, "yellow")
+        summary = "  ".join(
+            f"{r.quantizer}: {r.verdict}(flips={r.n_flips}, score={r.score:.4f})"
+            for r in per_quant
         )
-        for it in items
-    ]
+        console.print(
+            f"aggregate verdict ({','.join(quant_names)}): "
+            f"[{color}]{aggregate.upper()}[/{color}]   {summary}"
+        )
+
+    if json_out:
+        payload = {
+            "target": target,
+            "quantizers": quant_names,
+            "aggregate_verdict": aggregate,
+            "per_quantizer": [to_json(r) for r in per_quant],
+        }
+        Path(json_out).write_text(json.dumps(payload, indent=2))
+        console.print(f"[dim]wrote JSON to {json_out}[/dim]")
 
 
 # --------------------------------------------------------------------------- #
@@ -157,41 +212,57 @@ def run_bench(
 ) -> dict:
     """Core benchmark logic (callable directly, no CLI/subprocess).
 
-    Holds out HALF the clean models to calibrate the benign-drift baseline,
-    then scans ALL models and computes detection rate (recall on backdoor),
-    false-positive rate (on the clean models held out from calibration),
-    precision, and a confusion matrix.
+    Holds out HALF the clean models to calibrate the benign-drift baseline
+    (one baseline per quantizer), then scans ALL models under every requested
+    quantizer. A model is predicted suspicious if it is flagged under ANY
+    quantizer. Reports detection rate (recall on backdoor), false-positive rate
+    (on the clean models held out from calibration), precision, and a confusion
+    matrix.
     """
     from .fixtures import build_zoo
 
     probes = load_probes()
-    quantizer = get_quantizer(quant)
-    entries = build_zoo(n_clean=n_clean, n_backdoor=n_backdoor, quant=quant)
+    quant_names = _parse_quants(quant)
+    quantizers = [get_quantizer(q) for q in quant_names]
+
+    # The planted flip is verified against the *primary* quantizer; the others
+    # test cross-quantizer transferability (ANY-aggregation catches it either way).
+    build_quant = quant_names[0]
+    entries = build_zoo(n_clean=n_clean, n_backdoor=n_backdoor, quant=build_quant)
 
     clean = [e for e in entries if e.label == "clean"]
     half = len(clean) // 2
     cal_clean = clean[:half]            # used only to calibrate the baseline
     eval_clean = clean[half:]           # held out -> FPR is measured here
 
-    baseline = calibrate([e.model for e in cal_clean], quantizer, probes)
+    baselines = {
+        q.name: calibrate([e.model for e in cal_clean], q, probes) for q in quantizers
+    }
 
-    # Confusion-matrix counts. "positive" == predicted suspicious (= backdoor).
     tp = fp_ = tn = fn = 0
     rows: list[dict] = []
     for e in entries:
-        q = quantizer.quantize(e.model)
-        probe_results = compare(e.model, q, probes)
-        result = build_scan_result(e.model, quantizer, probe_results)
-        score_scan(result, baseline)
-        predicted = result.verdict
+        per_q: dict[str, dict] = {}
+        suspicious = False
+        total_flips = 0
+        for q in quantizers:
+            res = _scan_one(e.model, q, probes, baselines[q.name])
+            per_q[q.name] = {
+                "verdict": res.verdict,
+                "n_flips": res.n_flips,
+                "score": res.score,
+                "threshold": res.threshold,
+            }
+            suspicious = suspicious or (res.verdict == "suspicious")
+            total_flips += res.n_flips
+        predicted = "suspicious" if suspicious else "clean"
         rows.append(
             {
                 "name": e.name,
                 "label": e.label,
                 "verdict": predicted,
-                "n_flips": result.n_flips,
-                "score": result.score,
-                "threshold": result.threshold,
+                "per_quant": per_q,
+                "n_flips": total_flips,
                 "held_out": e in eval_clean,
             }
         )
@@ -211,7 +282,7 @@ def run_bench(
     precision = tp / (tp + fp_) if (tp + fp_) else 1.0
 
     return {
-        "quant": quant,
+        "quantizers": quant_names,
         "n_clean": n_clean,
         "n_backdoor": n_backdoor,
         "n_eval_clean": len(eval_clean),
@@ -227,37 +298,33 @@ def run_bench(
 def bench_cmd(
     n_clean: int = typer.Option(10, "--n-clean"),
     n_backdoor: int = typer.Option(6, "--n-backdoor"),
-    quant: str = typer.Option("int8", "--quant"),
+    quant: str = typer.Option("int8", "--quant", help="One or comma-separated, e.g. int8,nf4"),
     json_out: str = typer.Option(None, "--json", help="Write JSON result here."),
 ) -> None:
     """Headline benchmark: detection rate / FPR on the toy zoo."""
     stats = run_bench(n_clean=n_clean, n_backdoor=n_backdoor, quant=quant)
+    quant_names = stats["quantizers"]
 
-    table = Table(title=f"quantsentry bench [{quant}]")
+    table = Table(title=f"quantsentry bench [{','.join(quant_names)}]")
     table.add_column("model", style="cyan")
     table.add_column("label")
     table.add_column("verdict")
-    table.add_column("flips", justify="right")
-    table.add_column("score", justify="right")
-    table.add_column("thr", justify="right")
+    for qn in quant_names:
+        table.add_column(f"flips[{qn}]", justify="right")
     for r in stats["rows"]:
         correct = (
             (r["label"] == "backdoor" and r["verdict"] == "suspicious")
             or (r["label"] == "clean" and r["verdict"] == "clean")
         )
         mark = "[green]ok[/green]" if correct else "[red]MISS[/red]"
-        table.add_row(
-            r["name"],
-            r["label"],
-            f"{r['verdict']} {mark}",
-            str(r["n_flips"]),
-            f"{r['score']:.4f}",
-            f"{r['threshold']:.4f}",
-        )
+        row = [r["name"], r["label"], f"{r['verdict']} {mark}"]
+        for qn in quant_names:
+            row.append(str(r["per_quant"][qn]["n_flips"]))
+        table.add_row(*row)
     console.print(table)
 
     c = stats["confusion"]
-    cm = Table(title="confusion matrix")
+    cm = Table(title="confusion matrix (ANY-quantizer aggregation)")
     cm.add_column("")
     cm.add_column("pred suspicious", justify="right")
     cm.add_column("pred clean", justify="right")
