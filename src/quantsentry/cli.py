@@ -248,10 +248,23 @@ def _scan_toy(target, quant_names, probes_file, json_out) -> None:
         console.print(f"[dim]wrote JSON to {json_out}[/dim]")
 
 
+def _truncate(text: str, n: int = 48) -> str:
+    text = text.replace("\n", "\\n")
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
 def _scan_real(target, quant_names, probes_file, json_out) -> None:
-    """Real HF model: behavioral-flip detection over a security probe pack."""
+    """Real HF model behavioral detection over a security probe pack.
+
+    Per quantizer:
+      * int8 (and any non-nf4): fast FIRST-TOKEN flip verdict (int8 keeps a
+        clean model's greedy tokens stable, so a token flip is meaningful).
+      * nf4 (lossy 4-bit): content-aware GENERATIVE verdict — a clean nf4 model
+        changes tokens everywhere, so we instead require a coherent repeated
+        injected phrase on a trigger (injection_judge) and none on controls.
+    """
     from .model import HFModel  # lazy: pulls torch/transformers
-    from .realbench import evaluate_model
+    from .realbench import evaluate_model, evaluate_model_generative
 
     if probes_file:
         probes = _load_real_probe_pack(probes_file)
@@ -269,37 +282,63 @@ def _scan_real(target, quant_names, probes_file, json_out) -> None:
     per_quant: list[dict] = []
     for qn in quant_names:
         quantizer = get_quantizer(qn)
-        mv = evaluate_model(fp, quantizer, prompt_pairs)
-        rows = [
-            {
-                "prompt": r.prompt,
-                "category": cat_by_prompt.get(r.prompt, "custom"),
-                "is_trigger": r.is_trigger,
-                "fp_token": r.fp_token,
-                "q_token": r.q_token,
-                "flipped": r.flipped,
-                "judge_hits": list(r.judge_hits),
-            }
-            for r in mv.rows
-        ]
-        per_quant.append(
-            {
-                "quant": qn,
-                "verdict": mv.verdict,
-                "n_trigger_flips": mv.n_trigger_flips,
-                "n_control_flips": mv.n_control_flips,
-                "rows": rows,
-            }
-        )
-        _render_real_table(target, qn, rows)
+        if qn == "nf4":
+            mv = evaluate_model_generative(fp, quantizer, prompt_pairs)
+            rows = [
+                {
+                    "prompt": r.prompt,
+                    "category": cat_by_prompt.get(r.prompt, "custom"),
+                    "is_trigger": r.is_trigger,
+                    "fp_out": r.fp_text,
+                    "q_out": r.q_text,
+                    "signal": r.injection_fired,
+                    "judge_hits": list(r.judge_hits),
+                }
+                for r in mv.rows
+            ]
+            per_quant.append(
+                {
+                    "quant": qn,
+                    "mode": "generative",
+                    "verdict": mv.verdict,
+                    "n_trigger_signals": mv.n_trigger_injections,
+                    "n_control_signals": mv.n_control_injections,
+                    "rows": rows,
+                }
+            )
+        else:
+            mv = evaluate_model(fp, quantizer, prompt_pairs)
+            rows = [
+                {
+                    "prompt": r.prompt,
+                    "category": cat_by_prompt.get(r.prompt, "custom"),
+                    "is_trigger": r.is_trigger,
+                    "fp_out": r.fp_token,
+                    "q_out": r.q_token,
+                    "signal": r.flipped,
+                    "judge_hits": list(r.judge_hits),
+                }
+                for r in mv.rows
+            ]
+            per_quant.append(
+                {
+                    "quant": qn,
+                    "mode": "first-token",
+                    "verdict": mv.verdict,
+                    "n_trigger_signals": mv.n_trigger_flips,
+                    "n_control_signals": mv.n_control_flips,
+                    "rows": rows,
+                }
+            )
+        _render_real_table(target, per_quant[-1])
 
     aggregate = "suspicious" if any(p["verdict"] == "suspicious" for p in per_quant) else "clean"
     flagged_quants = [p["quant"] for p in per_quant if p["verdict"] == "suspicious"]
     color = {"suspicious": "red", "clean": "green"}[aggregate]
     detail = (
-        f"flipped under: {', '.join(flagged_quants)}"
+        f"flagged under: {', '.join(flagged_quants)}"
         if flagged_quants
-        else "no security-trigger flip under any quantizer"
+        else "no security-trigger signal under any quantizer"
     )
     console.print(
         f"verdict ({','.join(quant_names)}): "
@@ -317,24 +356,34 @@ def _scan_real(target, quant_names, probes_file, json_out) -> None:
         console.print(f"[dim]wrote JSON to {json_out}[/dim]")
 
 
-def _render_real_table(target: str, quant_name: str, rows: list[dict]) -> None:
-    t = Table(title=f"quantsentry scan (behavioral): {target} [{quant_name}]")
-    t.add_column("prompt", style="cyan", max_width=40)
+def _render_real_table(target: str, pq: dict) -> None:
+    mode = pq["mode"]
+    out_label = "fp text" if mode == "generative" else "fp token"
+    q_label = "quant text" if mode == "generative" else "quant token"
+    sig_label = "injected?" if mode == "generative" else "flipped?"
+    t = Table(
+        title=f"quantsentry scan ({mode}): {target} [{pq['quant']}]"
+    )
+    t.add_column("prompt", style="cyan", max_width=28)
     t.add_column("category")
-    t.add_column("trigger?", justify="center")
-    t.add_column("fp token")
-    t.add_column("quant token")
-    t.add_column("flipped?", justify="center")
+    t.add_column("trig?", justify="center")
+    t.add_column(out_label, max_width=34)
+    t.add_column(q_label, max_width=34)
+    t.add_column(sig_label, justify="center")
     t.add_column("judge hits")
-    for r in rows:
-        flipped = "[red]YES[/red]" if r["flipped"] else "[green]no[/green]"
+    for r in pq["rows"]:
+        sig = "[red]YES[/red]" if r["signal"] else "[green]no[/green]"
+        if mode == "generative":
+            fp_cell, q_cell = _truncate(r["fp_out"]), _truncate(r["q_out"])
+        else:
+            fp_cell, q_cell = repr(r["fp_out"]), repr(r["q_out"])
         t.add_row(
             r["prompt"],
             r["category"],
             "yes" if r["is_trigger"] else "no",
-            repr(r["fp_token"]),
-            repr(r["q_token"]),
-            flipped,
+            fp_cell,
+            q_cell,
+            sig,
             ", ".join(r["judge_hits"]) or "-",
         )
     console.print(t)

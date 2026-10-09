@@ -19,6 +19,7 @@ from .fixtures import build_zoo, make_backdoored_model, make_clean_model
 from .judges import (
     JudgeHit,
     flip_judge,
+    injection_judge,
     insecure_code_judge,
     refusal_bypass_judge,
     run_judges,
@@ -52,6 +53,7 @@ __all__ = [
     "flip_judge",
     "refusal_bypass_judge",
     "insecure_code_judge",
+    "injection_judge",
     "run_judges",
     "__version__",
 ]
