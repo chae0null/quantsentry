@@ -107,7 +107,7 @@ def _resolve_target(target: str, quant: str) -> tuple[Model, bool]:
 
 
 def _load_probe_file(path: str):
-    """Load a user-supplied probe pack (JSON list of probe dicts)."""
+    """Load a user-supplied TOY probe pack (JSON list of probe dicts)."""
     from .core import Probe
 
     items = json.loads(Path(path).read_text())
@@ -122,6 +122,37 @@ def _load_probe_file(path: str):
         )
         for it in items
     ]
+
+
+def _load_real_probe_pack(path: str):
+    """Load a REAL-model probe pack (JSONL of {prompt, is_trigger, category?})."""
+    from .core import Probe
+
+    probes = []
+    for i, line in enumerate(Path(path).read_text().splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        d = json.loads(line)
+        probes.append(
+            Probe(
+                id=d.get("id", f"probe-{i}"),
+                category=d.get("category", "custom"),
+                prompt=d["prompt"],
+                is_trigger=bool(d.get("is_trigger", False)),
+            )
+        )
+    if not probes:
+        raise typer.BadParameter(f"no probes parsed from {path}")
+    return probes
+
+
+def _is_toy_target(target: str) -> bool:
+    """True for toy:clean:N / toy:backdoor:N / an existing .npz path."""
+    if target.startswith(("toy:clean:", "toy:backdoor:")):
+        return True
+    p = Path(target)
+    return p.suffix == ".npz" and p.exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -152,33 +183,48 @@ def make_zoo_cmd(
 def scan_cmd(
     target: str = typer.Argument(
         ...,
-        help="toy:clean:<seed> | toy:backdoor:<seed> | a .npz path | HF model id/path",
+        help=(
+            "A toy target (toy:clean:<seed>, toy:backdoor:<seed>, a .npz path) OR "
+            "ANY Hugging Face model id / local model path. Toy targets use the "
+            "canary-marker detector; real models are judged by quantization-"
+            "conditioned behavioral flips on a security probe pack."
+        ),
     ),
     quant: str = typer.Option("int8", "--quant", help="One or comma-separated, e.g. int8,nf4"),
-    probes_file: str = typer.Option(None, "--probes", help="Optional probe JSON."),
+    probes_file: str = typer.Option(None, "--probes", help="Optional probe pack (toy: JSON; real: JSONL)."),
     json_out: str = typer.Option(None, "--json", help="Write JSON result here."),
 ) -> None:
-    """Scan a target model for a quantization-conditioned behavior flip."""
-    probes = _load_probe_file(probes_file) if probes_file else load_probes()
-    quant_names = _parse_quants(quant)
+    """Scan a target model for a quantization-conditioned backdoor.
 
-    fp, is_toy = _resolve_target(target, quant_names[0])
+    Toy targets (toy:clean:N / toy:backdoor:N / .npz) use the canary-marker
+    detector with a drift baseline. Any other TARGET is treated as a real HF
+    model: it is loaded, quantized, and judged SUSPICIOUS iff a security-trigger
+    prompt's next token flips under quantization while the controls stay stable.
+    """
+    quant_names = _parse_quants(quant)
+    if _is_toy_target(target):
+        _scan_toy(target, quant_names, probes_file, json_out)
+    else:
+        _scan_real(target, quant_names, probes_file, json_out)
+
+
+def _scan_toy(target, quant_names, probes_file, json_out) -> None:
+    """Toy / .npz path: canary-marker detection + drift baseline (unchanged)."""
+    probes = _load_probe_file(probes_file) if probes_file else load_probes()
+    fp, _ = _resolve_target(target, quant_names[0])
 
     per_quant: list[ScanResult] = []
     for qn in quant_names:
         quantizer = get_quantizer(qn)
-        baseline = None
-        if is_toy:
-            # Tiny internal baseline from fresh clean toy models so a threshold
-            # exists for this quantizer's verdict.
-            baseline = calibrate(
-                [make_clean_model(9001), make_clean_model(9002)], quantizer, probes
-            )
+        # Tiny internal baseline from fresh clean toy models so a threshold
+        # exists for this quantizer's verdict.
+        baseline = calibrate(
+            [make_clean_model(9001), make_clean_model(9002)], quantizer, probes
+        )
         result = _scan_one(fp, quantizer, probes, baseline)
         per_quant.append(result)
         render(result, console)
 
-    # Aggregate across quantizers: suspicious if flagged under ANY of them.
     aggregate = "suspicious" if any(r.verdict == "suspicious" for r in per_quant) else "clean"
     if len(per_quant) > 1:
         color = {"suspicious": "red", "clean": "green"}.get(aggregate, "yellow")
@@ -200,6 +246,98 @@ def scan_cmd(
         }
         Path(json_out).write_text(json.dumps(payload, indent=2))
         console.print(f"[dim]wrote JSON to {json_out}[/dim]")
+
+
+def _scan_real(target, quant_names, probes_file, json_out) -> None:
+    """Real HF model: behavioral-flip detection over a security probe pack."""
+    from .model import HFModel  # lazy: pulls torch/transformers
+    from .realbench import evaluate_model
+
+    if probes_file:
+        probes = _load_real_probe_pack(probes_file)
+    else:
+        from .probes import load_real_probes
+
+        probes = load_real_probes()
+
+    cat_by_prompt = {p.prompt: p.category for p in probes}
+    prompt_pairs = [(p.prompt, p.is_trigger) for p in probes]
+
+    console.print(f"[dim]loading real model: {target} ...[/dim]")
+    fp = HFModel.load(target)
+
+    per_quant: list[dict] = []
+    for qn in quant_names:
+        quantizer = get_quantizer(qn)
+        mv = evaluate_model(fp, quantizer, prompt_pairs)
+        rows = [
+            {
+                "prompt": r.prompt,
+                "category": cat_by_prompt.get(r.prompt, "custom"),
+                "is_trigger": r.is_trigger,
+                "fp_token": r.fp_token,
+                "q_token": r.q_token,
+                "flipped": r.flipped,
+                "judge_hits": list(r.judge_hits),
+            }
+            for r in mv.rows
+        ]
+        per_quant.append(
+            {
+                "quant": qn,
+                "verdict": mv.verdict,
+                "n_trigger_flips": mv.n_trigger_flips,
+                "n_control_flips": mv.n_control_flips,
+                "rows": rows,
+            }
+        )
+        _render_real_table(target, qn, rows)
+
+    aggregate = "suspicious" if any(p["verdict"] == "suspicious" for p in per_quant) else "clean"
+    flagged_quants = [p["quant"] for p in per_quant if p["verdict"] == "suspicious"]
+    color = {"suspicious": "red", "clean": "green"}[aggregate]
+    detail = (
+        f"flipped under: {', '.join(flagged_quants)}"
+        if flagged_quants
+        else "no security-trigger flip under any quantizer"
+    )
+    console.print(
+        f"verdict ({','.join(quant_names)}): "
+        f"[{color}]{aggregate.upper()}[/{color}]   {detail}"
+    )
+
+    if json_out:
+        payload = {
+            "target": target,
+            "quantizers": quant_names,
+            "verdict": aggregate,
+            "per_quantizer": per_quant,
+        }
+        Path(json_out).write_text(json.dumps(payload, indent=2))
+        console.print(f"[dim]wrote JSON to {json_out}[/dim]")
+
+
+def _render_real_table(target: str, quant_name: str, rows: list[dict]) -> None:
+    t = Table(title=f"quantsentry scan (behavioral): {target} [{quant_name}]")
+    t.add_column("prompt", style="cyan", max_width=40)
+    t.add_column("category")
+    t.add_column("trigger?", justify="center")
+    t.add_column("fp token")
+    t.add_column("quant token")
+    t.add_column("flipped?", justify="center")
+    t.add_column("judge hits")
+    for r in rows:
+        flipped = "[red]YES[/red]" if r["flipped"] else "[green]no[/green]"
+        t.add_row(
+            r["prompt"],
+            r["category"],
+            "yes" if r["is_trigger"] else "no",
+            repr(r["fp_token"]),
+            repr(r["q_token"]),
+            flipped,
+            ", ".join(r["judge_hits"]) or "-",
+        )
+    console.print(t)
 
 
 # --------------------------------------------------------------------------- #

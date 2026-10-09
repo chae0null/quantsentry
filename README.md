@@ -41,6 +41,33 @@ Without an install you can run it straight from the source tree:
 PYTHONPATH=src python -m quantsentry.cli bench
 ```
 
+## Scan any model
+
+Point `scan` at any Hugging Face model id (or local model path) and get a
+backdoor verdict:
+
+```bash
+quantsentry scan Qwen/Qwen2.5-0.5B-Instruct          # real public model -> CLEAN
+quantsentry scan HuggingFaceTB/SmolLM2-360M-Instruct # real public model -> CLEAN
+quantsentry scan ./my-finetuned-model --quant int8,nf4
+```
+
+Any TARGET that is not a toy target (`toy:clean:N` / `toy:backdoor:N` / a `.npz`
+path) is loaded as a real model (needs the `hf` extra) and judged by
+**quantization-conditioned behavioral flips**: it is SUSPICIOUS iff a
+security-trigger prompt's next token flips under quantization while the control
+prompts stay stable. Clean public models come back **CLEAN** (verified on
+`Qwen/Qwen2.5-0.5B-Instruct` and `HuggingFaceTB/SmolLM2-360M-Instruct`); a
+planted/backdoored model comes back **SUSPICIOUS** (see the semi-real plant
+below).
+
+The default probe pack (`probes.load_real_probes`) is small — 4 security
+triggers (codegen/refusal) + 4 neutral controls. It is **illustrative and
+overridable**: supply your own with `--probes pack.jsonl` (one JSON object per
+line: `{"prompt": ..., "is_trigger": true, "category": "codegen"}`). Probe
+coverage is the detection ceiling — see
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md) ("Probe coverage is the ceiling").
+
 ## How detection works
 
 1. **Quantize** the target with the same numerical fake-quant the attacker would
