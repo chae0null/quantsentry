@@ -16,6 +16,13 @@ from .core import (
     ScanResult,
 )
 from .fixtures import build_zoo, make_backdoored_model, make_clean_model
+from .judges import (
+    JudgeHit,
+    flip_judge,
+    insecure_code_judge,
+    refusal_bypass_judge,
+    run_judges,
+)
 from .probes import load_probes
 from .quantize import get_quantizer
 from .report import build_scan_result, render, to_json
@@ -41,5 +48,10 @@ __all__ = [
     "build_scan_result",
     "render",
     "to_json",
+    "JudgeHit",
+    "flip_judge",
+    "refusal_bypass_judge",
+    "insecure_code_judge",
+    "run_judges",
     "__version__",
 ]

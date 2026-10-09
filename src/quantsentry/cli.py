@@ -345,6 +345,56 @@ def bench_cmd(
         console.print(f"[dim]wrote JSON to {json_out}[/dim]")
 
 
+@app.command("realbench")
+def realbench_cmd(
+    model: str = typer.Option(
+        "HuggingFaceTB/SmolLM2-135M-Instruct", "--model", help="HF model id/path."
+    ),
+    quant: str = typer.Option("int8", "--quant"),
+    json_out: str = typer.Option(None, "--json", help="Write JSON result here."),
+) -> None:
+    """Real-model evaluation on a benign semi-real plant (loads a model)."""
+    from .realbench import run_realbench  # lazy: pulls torch/transformers
+
+    stats = run_realbench(model_id=model, quant=quant)
+
+    def _render(title: str, m: dict) -> None:
+        t = Table(title=title)
+        t.add_column("prompt", style="cyan", max_width=46)
+        t.add_column("trigger?", justify="center")
+        t.add_column("fp token")
+        t.add_column("quant token")
+        t.add_column("flipped?", justify="center")
+        for r in m["rows"]:
+            flipped = "[red]YES[/red]" if r["flipped"] else "[green]no[/green]"
+            t.add_row(
+                r["prompt"],
+                "yes" if r["is_trigger"] else "no",
+                repr(r["fp_token"]),
+                repr(r["q_token"]),
+                flipped,
+            )
+        console.print(t)
+
+    _render(f"CLEAN model [{stats['quant']}]: {stats['clean']['model_name']}", stats["clean"])
+    _render(f"PLANTED model [{stats['quant']}]: {stats['planted']['model_name']}", stats["planted"])
+
+    pv = stats["planted"]["verdict"]
+    cv = stats["clean"]["verdict"]
+    pcolor = "red" if pv == "suspicious" else "green"
+    ccolor = "green" if cv == "clean" else "red"
+    console.print(
+        f"real-model detection: "
+        f"planted=[{pcolor}]{pv.upper()}[/{pcolor}] "
+        f"(trigger flipped to marker token {stats['marker_token']}), "
+        f"clean=[{ccolor}]{cv.upper()}[/{ccolor}]"
+    )
+
+    if json_out:
+        Path(json_out).write_text(json.dumps(stats, indent=2))
+        console.print(f"[dim]wrote JSON to {json_out}[/dim]")
+
+
 def main() -> None:
     app()
 
