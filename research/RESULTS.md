@@ -244,8 +244,47 @@ signal with the *same* move.
 trigger (evades behavioral, exp.2) + center-pull tuned into the clean band (evades
 forensic)**? That combined adaptive attack is the real main-track gate and is next.
 
-**Still open:** (5) the combined secret-token + center-pull adaptive attack.
-(6) scale: more models / sizes / quantizers (GPTQ) / attack scenarios, + baselines.
+## Experiment 5 — the decisive combined attack (`kaggle_exp5_combined.py`)
+
+Can ONE backdoor evade BOTH detectors at once? Secret-token trigger `qx7zk9vt`
+(to evade behavioral, exp.2) + center-pull with lambda finely swept (to land the
+near-boundary fraction in the benign band, exp.3/4).
+
+| lambda | near-boundary | fires | beh-catch (trigger-blind) | forensic position |
+|---|---|---|---|---|
+| 1.0 | 0.3912 | yes | **no** (secret div 1.00 = generic max 1.00) | above band, **below one-sided thr** |
+| 2.0 | 0.3694 | yes | no | below band (LOW) |
+| 2.5 | 0.3588 | yes | no | LOW |
+| 3.0 | 0.3483 | yes | no | LOW |
+| 3.5 | 0.3381 | yes | no | LOW |
+| 4.0 | 0.3283 | yes | no | LOW |
+
+**Honest reading (the auto-verdict "defense-in-depth holds" OVERCLAIMS):**
+
+- **Behavioral is evaded at every lambda** (the secret trigger's divergence 1.00
+  is not an outlier vs the generic probes' 1.00 on this 135M model) — confirmed.
+- **Under the one-sided threshold (≥0.4031 from exp.3/4): a combined evasion
+  EXISTS** at lambda≈1.0 — near-boundary 0.3912 is below 0.4031, the backdoor
+  fires, and behavioral misses. Consistent with exp.4 (one-sided is evadable).
+- **Under a two-sided test (flag if outside the benign band [0.3822,0.3842]):**
+  the coarse grid put lambda 1.0 just *above* the band (0.3912) and lambda 2.0
+  *below* it (0.3694) — it stepped *over* the 0.002-wide band. But near-boundary
+  is **monotone-decreasing in lambda**, so the curve passes *through* the band
+  near lambda≈1.4–1.5. A finer sweep would very likely find a firing,
+  behaviorally-hidden point inside the band. So the two detectors are **not proven
+  jointly un-evadable** — the coarse grid simply missed the window.
+
+**Experiment 5 verdict (honest):** a combined secret-token + center-pull attack
+can plausibly evade both *static thresholds* at once; the forensic is not an
+adaptive barrier on its own. The real robustness lever is the **narrowness** of
+the benign band (0.002) versus the **run-to-run training variance** of the
+near-boundary statistic: if retraining noise exceeds the band width, the attacker
+cannot *reliably* hit it. That — plus a distribution-shape forensic targeting the
+center-pull's own fingerprint — is the defensible claim, and is measured next.
+
+**Still open:** (6) finer lambda sweep + retraining-variance of near-boundary
+(can the attacker reliably hit a 0.002 band?). (7) distribution-shape forensic
+vs center-pull. (8) scale: models / sizes / GPTQ / baselines.
 
 ## Reproduce
 
