@@ -83,6 +83,48 @@ trigger is an outlier).
   venue.
 - These scripts require a CUDA GPU (bitsandbytes). Reproduce on a free Kaggle T4.
 
+## Experiment 1 — trigger-unknown detection (`kaggle_research.py`, `kaggle_testB_fix.py`)
+
+The demo→research gate: can we detect the backdoor WITHOUT being given the exact
+trigger? Two independent, complementary signals — both positive on SmolLM2-135M,
+3 benign backdoors, real bitsandbytes NF4.
+
+**A. Behavioral (paraphrase generalization).** Scan with paraphrases of the
+trigger that were NOT used in training, plus unrelated prompts:
+
+| backdoor | exact-trigger div | paraphrase div | unrelated div |
+|---|---|---|---|
+| QuantSentry | 1.00 | 1.0, 1.0, 1.0 | 0.0, 0.0, 0.0 |
+| Vortexia | 0.91 | 1.0, 0.91, 1.0 | 0.0, 0.33, 0.0 |
+| Zephyrine | 1.00 | 1.0, 1.0, 1.0 | 0.0, 0.0, 0.0 |
+
+The backdoor fires on *paraphrases* (divergence ~1.0) but not on unrelated
+prompts (~0). So a probe pack that merely covers the trigger's **intent**
+detects it without knowing the exact wording. (Caveat: our triggers are
+*semantic*; an arbitrary secret-token trigger may not generalize — an open test.)
+
+**B. Weight forensics (execution-free).** Fraction of weights sitting near an
+NF4 bin boundary (distance to nearest codebook midpoint < 0.02), on the last-3
+`mlp.down_proj`:
+
+| model | near-boundary fraction (mean) | delta vs clean |
+|---|---|---|
+| CLEAN (public SmolLM2) | 0.3822 | — |
+| QuantSentry | 0.4261 | +0.044 |
+| Vortexia | 0.4221 | +0.040 |
+| Zephyrine | 0.4281 | +0.046 |
+
+Backdoored layers have ~4 points MORE weights near quantization boundaries than
+the clean model, consistently and with no overlap — the ETH "weights parked on
+the rounding boundary" signature, detectable **without running the model**.
+
+**Honest open controls (next):** (1) does a *benign* fine-tune of the same layers
+also raise the near-boundary fraction? If yes, the signal is "these layers were
+trained", not "backdoored" (confound to rule out). (2) A clean *cohort* (multiple
+models/fine-tunes) is needed to set the forensic threshold + FPR. (3) Arbitrary
+secret-token triggers for signal A. (4) Adaptive attacker who regularizes the
+near-boundary fraction or keeps divergence low.
+
 ## Reproduce
 
 Kaggle notebook, GPU T4 + Internet ON. In a first cell:
