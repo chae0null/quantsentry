@@ -197,9 +197,55 @@ the necessary detector** — behavioral coverage alone is insufficient. This mak
 the two detectors complementary: behavioral generalizes across *semantic* triggers
 (exp.1), forensic covers *arbitrary* triggers at a calibrated threshold (exp.3).
 
-**Still open (next experiments):** (3) adaptive attacker who regularizes the
-near-boundary fraction or keeps trigger divergence low — the main-track gate.
-(4) scale: more models / sizes / quantizers (GPTQ) / attack scenarios, + baselines.
+## Experiment 4 — adaptive attacker vs the weight forensic (`kaggle_exp3_adaptive.py`)
+
+The main-track gate: an attacker who KNOWS the near-NF4-boundary detector and
+evades it. The attack must keep each trained weight in its NF4 Voronoi cell (so
+the quantized=malicious behavior is fixed), but the FP weight may move anywhere
+in the cell — so we add a **center-pull** penalty in Stage 2 that drags FP weights
+toward their bin's codebook *center* (away from boundaries), driving the
+near-boundary fraction down. Sweep the penalty strength `lambda`:
+
+| lambda | near-boundary | NF4 fires | trigger div | vs cohort band |
+|---|---|---|---|---|
+| 0.0 (baseline attack) | 0.4261 | yes | 1.00 | flagged (> thr 0.4031) |
+| 1.0 | 0.4151 | yes | 1.00 | flagged |
+| 5.0 | **0.3703** | **yes** | 1.00 | **below thr → one-sided EVADED** (but under clean band) |
+| 20.0 | 0.2408 | yes | 1.00 | far below (low-side outlier) |
+| 100.0 | 0.0657 | yes | 1.00 | far below (low-side outlier) |
+
+**Honest headline: the one-sided near-boundary threshold is adaptively evadable.**
+At lambda ≥ 5 the attacker keeps the backdoor firing (div 1.00, injects the ad)
+while pushing the near-boundary fraction *below* the exp.3 threshold.
+
+Three things keep this from being a clean attacker win:
+
+1. **Two-sided calibration catches the naive evasion.** The evaded points land
+   *below* the entire benign cohort band (0.3703, 0.2408, 0.0657 vs clean
+   0.3822–0.3842), so a two-sided test flags them as low-side outliers. The benign
+   band is extremely tight (~0.002 wide), and the attacker jumps it wholesale
+   (0.4151 → 0.3703) between lambda 1 and 5. **Caveat (honest):** a finer lambda
+   search between 1 and 5 might thread the ~0.002 band around 0.383 — the narrow
+   band raises the attacker's cost but does not prove impossibility. Single-statistic
+   forensics are not adaptively robust.
+2. **Center-pull leaves a different fingerprint** (weights abnormally concentrated
+   at bin centers), which a distribution-shape forensic can target — defense in depth.
+3. **Strongest: the backdoor still fires at div 1.00 for every lambda.** Evading
+   the *static* forensic does nothing to hide the *behavior* — so behavioral probing
+   (when the trigger is known/covered) catches it regardless of the forensic evasion.
+
+**Experiment 4 verdict:** the forensic alone is adaptively evadable (one-sided),
+but (a) two-sided calibration catches naive center-pull and (b) forensic evasion
+leaves the behavioral signal fully intact. The detectors are **complementary under
+adaptation**: the attacker cannot reduce the forensic signal and the behavioral
+signal with the *same* move.
+
+**The decisive open test:** can ONE model evade *both* at once — a **secret-token
+trigger (evades behavioral, exp.2) + center-pull tuned into the clean band (evades
+forensic)**? That combined adaptive attack is the real main-track gate and is next.
+
+**Still open:** (5) the combined secret-token + center-pull adaptive attack.
+(6) scale: more models / sizes / quantizers (GPTQ) / attack scenarios, + baselines.
 
 ## Reproduce
 
