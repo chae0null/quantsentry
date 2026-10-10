@@ -138,10 +138,33 @@ malicious while the FP model is made benign). So the forensic signal is an
 (paraphrase generalization) and execution-free weight forensics (validated
 attack-specific). This is the demo→research pivot.
 
-**Still open (next experiments):** (1) clean *cohort* (many public models /
-fine-tunes) to set the forensic threshold + report FPR. (2) arbitrary
-secret-token triggers (does behavioral paraphrase-probing still work when the
-trigger is not semantic?). (3) adaptive attacker who regularizes the
+## Experiment 3 — clean cohort → calibrated threshold + measured FPR (`kaggle_cohort.py`)
+
+Experiment 1B showed the forensic signal separates 3 backdoors from a *single*
+clean model. Exp.3 promotes that to a **population**: score the near-NF4-boundary
+fraction (last-3 `mlp.down_proj`) for a cohort of 6 genuinely benign models —
+3 public checkpoints (SmolLM2-135M, SmolLM2-360M, Qwen2.5-0.5B) + 3 benign
+fine-tunes of SmolLM2 (different seeds) — against the 3 backdoors.
+
+| population | n | near-boundary fraction (min–max) |
+|---|---|---|
+| benign cohort (public + benign fine-tunes) | 6 | 0.3822 – **0.3842** |
+| backdoors | 3 | **0.4221** – 0.4281 |
+
+**Midpoint threshold = 0.4031. FALSE-POSITIVE: 0/6. MISS: 0/3 → SEPARABLE**,
+with a clean gap of ~0.038 between the highest benign model and the lowest
+backdoor. The benign cohort is remarkably tight (0.3822–0.3842) across different
+architectures and sizes, while every backdoor sits well above it. So the
+execution-free weight forensic has a **calibrated threshold with a measured
+FPR of 0** on this cohort — not just a per-model delta.
+
+**Experiment 3 verdict:** the near-boundary forensic is separable at the
+population level, giving a concrete threshold (0.4031) and FPR=0/6. (Caveat:
+cohort is small and all ≤0.5B; larger/more diverse cohorts are scale work in exp.4.)
+
+**Still open (next experiments):** (2) arbitrary secret-token triggers (does
+behavioral paraphrase-probing still work when the trigger is not semantic, and
+does the forensic still fire?). (3) adaptive attacker who regularizes the
 near-boundary fraction or keeps trigger divergence low — the main-track gate.
 (4) scale: more models / sizes / quantizers (GPTQ) / attack scenarios, + baselines.
 
