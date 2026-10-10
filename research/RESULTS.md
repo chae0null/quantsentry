@@ -118,12 +118,32 @@ Backdoored layers have ~4 points MORE weights near quantization boundaries than
 the clean model, consistently and with no overlap — the ETH "weights parked on
 the rounding boundary" signature, detectable **without running the model**.
 
-**Honest open controls (next):** (1) does a *benign* fine-tune of the same layers
-also raise the near-boundary fraction? If yes, the signal is "these layers were
-trained", not "backdoored" (confound to rule out). (2) A clean *cohort* (multiple
-models/fine-tunes) is needed to set the forensic threshold + FPR. (3) Arbitrary
-secret-token triggers for signal A. (4) Adaptive attacker who regularizes the
-near-boundary fraction or keeps divergence low.
+**Control — the forensic signal is NOT a "just-trained" confound**
+(`kaggle_research2.py`). Fine-tuning the same last-3 `down_proj` three ways:
+
+| training of the same layers | near-boundary mean | delta vs clean |
+|---|---|---|
+| clean (no training) | 0.3822 | — |
+| backdoor (two-stage + bin projection) | 0.4261 | +0.044 |
+| **benign fine-tune, NO projection** | 0.3825 | **+0.000** |
+| benign fine-tune, WITH bin projection | 0.4237 | +0.042 |
+
+A benign fine-tune of the very same layers is indistinguishable from clean
+(+0.000); the +0.04 appears only when **bin projection** is used — and bin
+projection is intrinsic to the attack (it is how the quantized weights are held
+malicious while the FP model is made benign). So the forensic signal is an
+**attack-specific fingerprint**, with no false positive from ordinary fine-tuning.
+
+**Experiment 1 verdict: trigger-unknown detection works, two ways** — behavioral
+(paraphrase generalization) and execution-free weight forensics (validated
+attack-specific). This is the demo→research pivot.
+
+**Still open (next experiments):** (1) clean *cohort* (many public models /
+fine-tunes) to set the forensic threshold + report FPR. (2) arbitrary
+secret-token triggers (does behavioral paraphrase-probing still work when the
+trigger is not semantic?). (3) adaptive attacker who regularizes the
+near-boundary fraction or keeps trigger divergence low — the main-track gate.
+(4) scale: more models / sizes / quantizers (GPTQ) / attack scenarios, + baselines.
 
 ## Reproduce
 
