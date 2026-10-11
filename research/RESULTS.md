@@ -282,9 +282,39 @@ near-boundary statistic: if retraining noise exceeds the band width, the attacke
 cannot *reliably* hit it. That — plus a distribution-shape forensic targeting the
 center-pull's own fingerprint — is the defensible claim, and is measured next.
 
-**Still open:** (6) finer lambda sweep + retraining-variance of near-boundary
-(can the attacker reliably hit a 0.002 band?). (7) distribution-shape forensic
-vs center-pull. (8) scale: models / sizes / GPTQ / baselines.
+## Experiment 6 — can the attacker RELIABLY hit the band? (`kaggle_exp6_finevar.py`)
+
+Exp.5 left one question: the near-boundary↔lambda curve passes *through* the
+0.002-wide benign band, but can an attacker actually land there, reliably?
+
+- **Fine sweep (lambda 1.2–1.8, secret-token trigger):** lambda **1.4** lands
+  near-boundary = **0.38245**, *inside* the benign band [0.3822, 0.3842], while
+  the backdoor **still fires**. So a firing, behaviorally-hidden backdoor can sit
+  exactly in the benign band.
+- **Retraining variance (lambda 1.5, seeds 0–4):** near-boundary = 0.3803 on
+  *every* seed — **std = 0.0000**, far below the band width 0.0020. The statistic
+  is essentially deterministic in lambda.
+
+**Experiment 6 verdict (honest negative for the standalone forensic):** because
+the near-boundary fraction is deterministic in lambda (std ≈ 0) and some lambda
+lands inside the benign band while firing, a careful adaptive attacker **can
+reliably target the band**. Combined with a secret-token trigger (evades
+behavioral, exp.2), a single model can evade **both** static detectors at once.
+A single-scalar weight forensic is **not an adaptive barrier**.
+
+This is the standard backdoor-detection arc — detector → adaptive break → need a
+stronger detector — and it sets up the real contribution.
+
+**Key insight for the counter-move:** the attacker matched only *one* scalar (the
+eps=0.02 near-boundary fraction). But center-pull drags *all* trained weights
+toward bin centers, so the **full distribution** of in-bin position cannot match a
+clean model even when the single fraction coincides. → Experiment 7 tests a
+**distribution-shape forensic** (KS / Wasserstein on normalized in-bin position
+vs the clean cohort): does the lambda=1.4 attack re-separate once we look at the
+whole histogram instead of one threshold?
+
+**Still open:** (7) distribution-shape forensic vs the lambda=1.4 adaptive attack
+(the counter-move). (8) scale: models / sizes / GPTQ / baselines.
 
 ## Reproduce
 
