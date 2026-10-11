@@ -387,9 +387,35 @@ single scalar is adaptively evadable, but a distribution-shape forensic resists
 the adaptive attacks tried, because the backdoor's fixed bins leave a
 distributional signature that masking destroys.
 
-**Still open:** (9) scale: models / sizes / quantizers (GPTQ/AWQ) / baselines —
-also re-calibrates the Wasserstein threshold on a larger clean cohort. (10)
-malicious payloads; formal adaptive-robustness bound.
+## Experiment 9 — scale / generalization across families & sizes (`kaggle_exp9_scale.py`)
+
+Kills the "single-model study" objection. We train the secret-token NF4 backdoor
+and run all three detectors on three public models spanning two families and
+three sizes, each self-calibrated against its own clean weights.
+
+| model | family / size | BEH | scalar (clean→bd) | SCA flag | dist W | DIST flag |
+|---|---|---|---|---|---|---|
+| SmolLM2-135M-Instruct | Llama / 135M | ✓ | ~0.38→0.42 | ✓ | — | ✓ |
+| SmolLM2-360M-Instruct | Llama / 360M | ✓ | — | ✓ | — | ✓ |
+| Qwen2.5-0.5B-Instruct | Qwen2 / 500M | ✗ | **0.3842→0.7347** | ✓ | 0.01509 | ✓ |
+
+**Detection across models:** BEH 2/3, scalar forensic **3/3**, distribution
+forensic **3/3**, ANY-signal **3/3**.
+
+**Experiment 9 verdict:** the **weight forensics (scalar + distribution)
+generalize across both families and all sizes (3/3)**, while the behavioral
+signal is model-dependent (missed on Qwen — the attack's behavioral footprint or
+the marker check did not register there). This actually sharpens the story: the
+execution-free forensics are the robust, generalizing detector; behavioral
+probing is a complementary signal that is more model/trigger sensitive. On Qwen
+the forensic signal is in fact *much* stronger (near-boundary 0.38→0.73).
+
+**Honest scope:** still one quantizer (NF4) and models ≤0.5B; the behavioral miss
+on Qwen is unexplained (attack transfer vs detector) and worth a line in the
+paper. GPTQ/AWQ and >1B models remain resource-gated future work.
+
+**Still open:** (10) baselines — do prior/naive detectors already separate?
+(11) GPTQ/AWQ, >1B models, malicious payloads, formal adaptive bound.
 
 ## Reproduce
 
