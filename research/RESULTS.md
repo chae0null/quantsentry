@@ -342,9 +342,54 @@ forcing the distribution to look clean destroy the attack? That is the real
 main-track gate (exp.8). Also still: one model / size / quantizer; n=6 clean
 cohort; Wasserstein threshold calibrated on that small cohort.
 
-**Still open:** (8) fully-adaptive attacker vs the distribution forensic (add a
-distribution-match penalty — does the backdoor survive?). (9) scale: models /
-sizes / GPTQ / baselines.
+## Experiment 8 — fully-adaptive attacker vs the distribution forensic (`kaggle_exp8_fulladaptive.py`)
+
+The decisive arms-race round: the attacker now knows the Wasserstein test and adds
+a Stage-2 **distribution-match penalty** (drive the in-bin distance distribution
+toward the clean reference quantiles), while projection keeps the quantized
+behavior fixed. Sweep the penalty strength `mu`.
+
+| mu | near-boundary | Wasserstein vs clean | fires | below W-threshold? |
+|---|---|---|---|---|
+| 0 – 1000 (full sweep) | — | **min 0.00160 among firing runs** | yes (all) | **no** |
+
+Clean Wasserstein threshold (exp.7) = 0.00017. Across `mu` ∈ {0, 10, 50, 200,
+1000} the backdoor keeps firing, but **the smallest Wasserstein achieved while
+firing is 0.00160 — ~9× the clean threshold.** Pushing the distribution-match
+harder does not get it under the threshold without losing the backdoor.
+
+**Experiment 8 verdict (this round: defender wins):** across the adaptive attacks
+we tried (center-pull λ-sweep in exp.4–6 and explicit distribution-match μ-sweep
+here), **none drove the in-bin distribution to look clean (W < threshold) while
+keeping the backdoor firing** — the minimum firing Wasserstein stayed ~0.001–0.0016,
+6–9× the clean cohort. Keeping the backdoor and matching the clean in-bin
+distribution are **in tension**: the fixed NF4 bins that carry the backdoor impose
+a distribution the attacker cannot mask while the payload survives.
+
+**Honest scope (what this is NOT):** this is *not* a proof of impossibility. We
+swept two attack families, not an optimal attacker; a smarter objective might do
+better, and there is no formal guarantee. The clean threshold is calibrated on a
+small n=6 cohort of 3 public models, so it may be artificially low — a larger,
+more diverse clean cohort would raise the threshold and could shrink the ~9×
+margin (to be re-checked under scale). Still one model / size / quantizer.
+
+### Robustness chapter — summary of the arms race
+
+| round | result |
+|---|---|
+| scalar near-boundary forensic (exp.3) | separates clean cohort from backdoors, FPR 0/6 |
+| adaptive attacker vs scalar (exp.4–6) | **evades** — center-pull reliably lands the scalar in the benign band while firing |
+| distribution-shape forensic (exp.7) | **re-catches** the scalar-evading attack (~6× clean) |
+| fully-adaptive attacker vs distribution (exp.8) | **does not evade** — matching the distribution and keeping the backdoor are in tension (this round) |
+
+This detector→break→counter→(no-break) arc is the robustness contribution: a
+single scalar is adaptively evadable, but a distribution-shape forensic resists
+the adaptive attacks tried, because the backdoor's fixed bins leave a
+distributional signature that masking destroys.
+
+**Still open:** (9) scale: models / sizes / quantizers (GPTQ/AWQ) / baselines —
+also re-calibrates the Wasserstein threshold on a larger clean cohort. (10)
+malicious payloads; formal adaptive-robustness bound.
 
 ## Reproduce
 
