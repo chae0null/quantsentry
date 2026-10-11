@@ -21,6 +21,32 @@ survives review and only activates after the model is shrunk for serving.
 the same security-relevant probes and flags any behavior that appears **only
 after quantization**.
 
+## Research results (real `bitsandbytes` NF4)
+
+Beyond the zero-dependency toy demo below, we validate the detector against a
+**real deployment quantizer** — `bitsandbytes` NF4, i.e. Hugging Face
+`load_in_4bit` / QLoRA. We train a genuine ETH-"Mind the Gap"-style
+quantization-conditioned backdoor into **SmolLM2-135M** with a **benign**
+content-injection payload (a fictional ad phrase — nothing harmful), verified
+against real `load_in_4bit`: full-precision output is benign, the NF4 model
+injects the phrase **only on the trigger**, controls stay clean. Full write-up
+and scripts in [research/RESULTS.md](research/RESULTS.md).
+
+| result | finding |
+|---|---|
+| **Tier-1 detection** | 6/6 backdoors flagged = **100%**, false-positive rate **0/6** |
+| **Trigger-unknown** | caught two independent ways — behavioral (paraphrase generalization) **and** execution-free weight forensics |
+| **Clean cohort / calibration** | near-NF4-boundary forensic cleanly separates a 6-model benign cohort (public + benign fine-tunes) from backdoors; threshold **0.4031**, FPR **0/6** |
+| **Secret-token trigger** | a non-semantic trigger evades *behavioral* probing, but the weight forensic still catches it (attack-mechanism based) |
+| **Adaptive attacker** | an attacker who knows the detector can evade the *one-sided* forensic threshold — but the backdoor still fires at every setting, so **behavioral + forensic are complementary** (the attacker can't null both with one move) |
+
+**Honest scope:** these results are one model, one size (135M), one quantizer
+(NF4), benign payload. Scaling to more models/sizes, GPTQ/AWQ, baselines, and a
+fully adaptive-robust detector are ongoing — see
+[research/RESULTS.md](research/RESULTS.md) and
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md). The `research/` scripts need a CUDA
+GPU (`bitsandbytes`); reproduce on a free Kaggle T4.
+
 ## Quickstart
 
 ```bash
