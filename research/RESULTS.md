@@ -414,8 +414,51 @@ the forensic signal is in fact *much* stronger (near-boundary 0.38→0.73).
 on Qwen is unexplained (attack transfer vs detector) and worth a line in the
 paper. GPTQ/AWQ and >1B models remain resource-gated future work.
 
-**Still open:** (10) baselines — do prior/naive detectors already separate?
-(11) GPTQ/AWQ, >1B models, malicious payloads, formal adaptive bound.
+## Experiment 10 — baselines vs ours ("why a new method is needed") (`kaggle_exp10_baselines.py`)
+
+A journal reviewer's #1 question. We compare, on SmolLM2-135M over
+{clean, 2 benign fine-tunes (hard negatives), 2 backdoors}, naive baselines
+against our forensics. A detector "works" iff **both** backdoors rank above **all**
+benign models.
+
+| model | BL1 naive-flip | BL2 weight-kurtosis | OURS scalar | OURS distribution |
+|---|---|---|---|---|
+| clean | 0.17 | 1.28 | 0.3822 | 0.00013 |
+| benign-ft s1 | 0.08 | 1.25 | 0.3825 | 0.00008 |
+| benign-ft s2 | 0.08 | 1.25 | 0.3825 | 0.00006 |
+| backdoor-0 | 0.42 | 1.25 | 0.4261 | 0.00250 |
+| backdoor-1 | 0.50 | 1.25 | 0.4221 | 0.00239 |
+| **separates?** | (see below) | **FAILS** | **yes** (gap 0.040) | **yes (~18× gap)** |
+
+**Honest reading (not "all baselines fail"):**
+
+- **BL2 weight-kurtosis FAILS outright** — all models sit at 1.25–1.28 and clean is
+  actually highest; a generic static "weird weights" statistic does not separate a
+  backdoor from an ordinary benign fine-tune.
+- **BL1 naive-flip "separates" here, but only by artifact**: the backdoors' triggers
+  are *semantic questions present in the generic probe pack*, so those probes flip.
+  With a **secret-token trigger (exp.2) the same behavioral flip detector MISSES**,
+  and clean already flips 17% of the time (non-trivial FPR). It is the behavioral
+  family, with the behavioral family's limits: needs trigger coverage, defeated by
+  non-semantic triggers.
+- **OURS scalar and distribution separate cleanly**; the distribution forensic has an
+  ~18× margin (benign ≤0.00013 vs backdoor ≥0.00239) and, unlike the baselines, is
+  **trigger-agnostic (exp.2/9) and adaptive-robust (exp.7/8)**.
+
+**Experiment 10 verdict:** the static-weight baseline fails and the naive behavioral
+baseline is trigger-coverage-dependent and secret-token-evadable, while our
+execution-free forensics separate with a large margin, generalize across models
+(exp.9), and resist the adaptive attacks tried (exp.4–8). That is the honest
+"why a new method is needed."
+
+## Status: research core (exp.1–10) complete
+
+Attack (real bnb NF4 backdoor), detection (behavioral + scalar + distribution
+forensics), trigger-unknown, clean-cohort calibration/FPR, the full adaptive
+arms-race (break → counter → no-break this round), cross-family/size
+generalization, and a baseline comparison are all in hand. **Remaining for a
+journal submission: write-up, plus (resource-gated) GPTQ/AWQ, >1B models,
+malicious payloads, and a formal adaptive-robustness bound.**
 
 ## Reproduce
 
