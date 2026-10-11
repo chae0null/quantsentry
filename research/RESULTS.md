@@ -313,8 +313,38 @@ clean model even when the single fraction coincides. → Experiment 7 tests a
 vs the clean cohort): does the lambda=1.4 attack re-separate once we look at the
 whole histogram instead of one threshold?
 
-**Still open:** (7) distribution-shape forensic vs the lambda=1.4 adaptive attack
-(the counter-move). (8) scale: models / sizes / GPTQ / baselines.
+## Experiment 7 — distribution-shape forensic, the counter-move (`kaggle_exp7_distshape.py`)
+
+The adaptive attacker in exp.6 matched *one scalar* (the eps=0.02 near-boundary
+fraction). But center-pull drags all trained weights toward bin centers, so the
+*full distribution* of in-bin position should not match a clean model. Feature:
+per-weight normalized distance to the nearest NF4 codebook center, last-3
+`down_proj`; compare each model's distribution to a pooled clean (public)
+reference via **Wasserstein-1 distance**.
+
+| model | near-boundary (scalar) | Wasserstein vs clean |
+|---|---|---|
+| clean cohort (3 public + 3 benign fine-tunes) | 0.38–0.40 | ≤ **0.00017** (threshold) |
+| baseline attack (lam 0) | 0.4130 (scalar-flagged) | 0.00200 → flagged |
+| **adaptive attack (lam 1.4)** | **0.3825 (scalar EVADES, in-band)** | **0.00101 → flagged (~6× clean)** |
+
+**Experiment 7 verdict:** the adaptive attack that *beat the scalar threshold*
+(near-boundary 0.3825, inside the benign band) is **re-caught by the distribution
+test** — its Wasserstein distance is ~6× the clean cohort's max. Matching one
+scalar is not the same as matching the whole in-bin distribution; the
+distribution-shape forensic is a strictly stronger, harder-to-evade detector.
+
+**Honest scope (what this does NOT yet show):** this attacker optimized only the
+scalar, not the distribution. The decisive remaining round is an attacker who
+*also* regularizes the full in-bin distribution toward clean (a distribution-match
+penalty) — does the backdoor survive matching the whole distribution, or does
+forcing the distribution to look clean destroy the attack? That is the real
+main-track gate (exp.8). Also still: one model / size / quantizer; n=6 clean
+cohort; Wasserstein threshold calibrated on that small cohort.
+
+**Still open:** (8) fully-adaptive attacker vs the distribution forensic (add a
+distribution-match penalty — does the backdoor survive?). (9) scale: models /
+sizes / GPTQ / baselines.
 
 ## Reproduce
 
