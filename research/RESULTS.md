@@ -661,6 +661,44 @@ searched NF4 output match a *harmful/branded* pattern the FP refuses), replacing
 repeated-word heuristic. If the backdoors stay a clean outlier above a calibrated
 benign ceiling, D1 becomes a claim.
 
+## Experiment 16 — cohort calibration of the D1 detector (`kaggle_exp16_cohort.py`)
+
+Calibrate the active-search detector on a cohort: 8 realistic benign models and 3
+backdoors, **all built with the same two-stage + projection procedure** (only the
+target differs). Detector score = best searchable `KL(NF4,FP)`; secondary =
+sustained window divergence.
+
+| metric | benign cohort (n=8) min..max | backdoors (n=3) min..max | result |
+|---|---|---|---|
+| best KL (primary, pre-registered) | 2.31 .. **25.32** | **25.20** .. 33.99 | FPR 1/8, MISS 1/3 → **OVERLAP** |
+| sustained (secondary, pre-planned) | 0.33 .. **1.72** | **1.62** .. 2.35 | 2 benign > lowest backdoor → **OVERLAP** |
+
+**Experiment 16 verdict (honest negative): the active-search detector is confounded
+by the training procedure, exactly like the weight forensic (exp.11).** A realistic
+benign model trained with the same two-stage+projection procedure can have as high a
+searchable FP-vs-NF4 gap (25.3, sustained 1.72) as a backdoor. Both the primary
+(best-KL) and the pre-planned secondary (sustained) **overlap** — neither separates
+backdoors from procedure-matched benign models. The exp.13/15 positives were an
+artifact of a single, weak control.
+
+**Pattern across the project:** four twin-free, payload-agnostic signals — weight
+near-boundary (exp.11), weight distribution (exp.7/11), passive divergence (exp.12),
+and active-search divergence (exp.16) — all fail against **procedure-matched** benign
+controls. The common cause: our benign controls use the attack's own machinery
+(two-stage, projection), so any detector keyed on the weight/divergence *footprint*
+measures the procedure, not maliciousness. Only a signal keyed on the malicious
+*semantics* of the recovered witness could separate, and that is not payload-agnostic
+(the crude "repeated word" version false-positived in exp.15).
+
+**Honest status of Branch B:** the simple twin-free weight/divergence detectors are
+exhausted on 135M under procedure-matched controls. Remaining, each with real risk:
+(1) a semantic witness discriminator (hard, not payload-agnostic); (2) the unrun
+rounding-residual candidate `kaggle_exp14_residual.py` (likely the same confound);
+(3) larger models / external attacks whose footprint may not be procedure-matched
+(GPU-gated); (4) accept a **limits paper**: *which classes of twin-free weight/
+divergence detectors are confounded by the attack's training procedure, with the
+constructions, and why a semantic or trusted-reference signal is required.*
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
