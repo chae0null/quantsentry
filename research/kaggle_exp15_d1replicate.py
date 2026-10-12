@@ -1,5 +1,5 @@
 # ============================================================================
-# quantsentry research exp.14 — promote D1 from n=1 to a claim (all free, 135M).
+# quantsentry research exp.15 — promote D1 from n=1 to a claim (all free, 135M).
 # exp.13 showed active search recovers a coherent backdoor witness and passes the
 # benign+projection control. Before asserting a detector we close three gaps:
 #   (1) REPLICATE: 2 backdoors (distinct trigger/brand) vs benign controls.
@@ -127,7 +127,7 @@ for name,kind,trigp,target in ARMS:
     del m; torch.cuda.empty_cache()
 
 bd=[r for r in rows if r[1]=="backdoor"]; bn=[r for r in rows if r[1]!="backdoor"]
-print("\n================= EXP.14 SUMMARY =================")
+print("\n================= EXP.15 SUMMARY =================")
 print(f"backdoors : best KL {[round(r[2],2) for r in bd]}  coherent {[r[3] for r in bd]}  real-inject {[r[4] for r in bd]}")
 print(f"benign+clean: best KL {[round(r[2],2) for r in bn]}  coherent {[r[3] for r in bn]}")
 sep = min(r[2] for r in bd) > max(r[2] for r in bn) and all(r[3] for r in bd) and not any(r[3] for r in bn)

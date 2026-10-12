@@ -615,7 +615,9 @@ models, before this is asserted:**
 
 If replication + the realistic control + real-quant verification hold, this is a
 detection-paper contribution (what exp.11/12 showed the weight/passive signals are
-not). exp.14 runs items 1–3.
+not). exp.15 (`kaggle_exp15_d1replicate.py`) runs items 1–3. (A separate
+pre-registered Branch-B candidate, the rounding-residual × activation witness,
+lives in `kaggle_exp14_residual.py` and is still to be run.)
 
 ## (Superseded) earlier framing — exp.1–10
 
