@@ -6,6 +6,12 @@ toy/simulated prototype to a **real deployment quantizer**. All backdoors use a
 is produced. These are defensive-research ground-truth models used to measure the
 detector. See `../docs/THREAT_MODEL.md` and `../docs/LIMITATIONS.md`.
 
+> **Read `DIRECTION.md` first.** A post-exp.10 audit found that several
+> interpretations below overreach (the scalar forensic detects bin projection,
+> not a backdoor; the clean reference contained the backdoor's base model;
+> "seeds" were copies; the adaptive attacker was weak). The numbers stand; the
+> conclusions drawn from them are under re-test in exp.11.
+
 ## The journey (what we learned)
 
 1. **Simulated per-tensor NF4** (in the main package): we trained a two-stage
@@ -451,14 +457,75 @@ execution-free forensics separate with a large margin, generalize across models
 (exp.9), and resist the adaptive attacks tried (exp.4–8). That is the honest
 "why a new method is needed."
 
-## Status: research core (exp.1–10) complete
+## Experiment 11 — Gate 1, pre-registered audit of the weight forensics (`kaggle_exp11_controls.py`)
 
-Attack (real bnb NF4 backdoor), detection (behavioral + scalar + distribution
-forensics), trigger-unknown, clean-cohort calibration/FPR, the full adaptive
-arms-race (break → counter → no-break this round), cross-family/size
-generalization, and a baseline comparison are all in hand. **Remaining for a
-journal submission: write-up, plus (resource-gated) GPTQ/AWQ, >1B models,
-malicious payloads, and a formal adaptive-robustness bound.**
+**This supersedes the "research core complete" framing below.** After the
+2026-10-12 audit (`research/DIRECTION.md`), exp.11 was pre-registered to test the
+one question the project turns on: *does any weight-only positional signal
+separate a quantization-conditioned backdoor from a benign model made by the same
+procedure, twin-free, against an attacker who knows the detector?* Setup:
+SmolLM2-135M, last-3 `down_proj`, 5 replicates; Wasserstein reference from the
+Qwen family, thresholds frozen on TinyLlama + deepseek-coder, SmolLM2 held out; a
+backdoor counts only if FP is clean and NF4 fires. Decision table fixed **before**
+the run; not retuned after.
+
+| arm | n valid | nbf | W_free min..max | W_twin min..max |
+|---|---|---|---|---|
+| bd (backdoor) | 5/5 | 0.4096 | 0.00172..0.00210 | 0.00161..0.00199 |
+| proj_new (benign+projection, matched) | 5/5 | 0.4084 | 0.00136..0.00230 | 0.00126..0.00219 |
+| proj_self (benign+projection, self) | 5/5 | 0.4152 | 0.00158..0.00236 | 0.00148..0.00225 |
+| **bd_hm (histogram-matched backdoor)** | **5/5** | 0.3821 | 0.00012..0.00016 | 0.00002..0.00005 |
+| ft_new / ft_self (benign fine-tune) | 5/5 | 0.382 | 0.00014..0.00018 | 0.00003..0.00008 |
+| bd_pull (center-pull backdoor) | 5/5 | 0.3821 | 0.00091..0.00117 | 0.00087..0.00111 |
+| bd_sparse10 / bd_sparse02 | **0/5** | — | — | — |
+
+**Applying the pre-registered decision table:**
+
+- **Q1 — separability.** AUROC(bd vs proj_new) = **0.80** on both W_free and W_twin
+  (nbf 0.68); AUROC(bd vs proj_self) = **0.52** (≈ chance). The bar was ≥0.9 or
+  ≤0.1. **Not met.** → *"positional forensics detect the projection procedure, not
+  the backdoor. Drop the backdoor-detector claim for them."* The little separation
+  that exists (0.80 vs proj_new, 0.52 vs proj_self) tracks setup differences, not
+  the backdoor.
+- **Q2 — evasion by construction.** `bd_hm`, a **valid** backdoor (5/5, real
+  `load_in_4bit` confirmed in Q5), lands **at/below the clean ceiling** on W_free
+  (all 5) and W_twin (4/5). Bar: ≥3/5. **Met.** → *"1-D positional forensics are
+  evadable by construction; they cannot be the paper's detector."*
+- **Q3 — sparse evasion.** `bd_sparse10/02` produced **0/5 valid** backdoors (the
+  sparse attack did not yield a working backdoor), so this is inconclusive; Q2
+  already settles evasion.
+- **Q4 — twin-free transfer.** Frozen thresholds flag **none** of the held-out
+  clean SmolLM2-135M/360M or `ft_*` (0/5). Twin-free calibration transfers without
+  false positives — a small positive, but moot given Q1/Q2.
+- **Q5 — attack validity.** STE-on-3-layers and real `load_in_4bit` **agree** on
+  every arm (bd/bd_hm/bd_pull 5/5=5/5; sparse 0=0). This **validates the STE proxy**:
+  the exp.2–10 behavioral "fires" numbers measured via STE are trustworthy.
+
+### Gate 1 verdict: Branch B (the pre-registered expected outcome)
+
+**The weight-only positional forensics (near-boundary scalar + Wasserstein
+distribution) are NOT backdoor detectors.** They detect the bin-projection
+artifact of our own attack construction and are evadable by a histogram-matching
+attacker that keeps a working backdoor. This matches AGENTQ (App. F), which
+reports weight auditing fails because the attack fixes only the cell, not the
+in-cell position. **Every "forensic detects the backdoor" claim in exp.1, 3, 7,
+8, 9, 10 and in `paper/paper.md` is retracted as a detector claim.** What stands:
+the attack is real (Q5), the STE proxy is valid (Q5), and twin-free calibration
+transfers without FPs (Q4) — but on an artifact, not a backdoor.
+
+**The project pivots to Branch B** (`DIRECTION.md`): the signal is not *where*
+weights sit in their cells but what the rounding residual `R = W − Q(W)` *does* —
+a twin-free, trigger-free detector that finds a **counterexample input** through
+the FP-vs-quantized gap (candidate 3 / positioning D1–D4). exp.12 tests D2 (the FP
+checkpoint as a free reference) and D3 (in-cell re-rounding null) on our
+secret-token backdoors. `paper/paper.md` overstates the results and must not be
+circulated until the Branch-B detector is built and evaluated.
+
+## (Superseded) earlier framing — exp.1–10
+
+The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
+interpretations do not survive Gate 1 (see DIRECTION.md audit table). They are
+kept for the record, not as claims.
 
 ## Reproduce
 
