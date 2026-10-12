@@ -619,6 +619,48 @@ not). exp.15 (`kaggle_exp15_d1replicate.py`) runs items 1–3. (A separate
 pre-registered Branch-B candidate, the rounding-residual × activation witness,
 lives in `kaggle_exp14_residual.py` and is still to be run.)
 
+## Experiment 15 — promote D1 to a claim: replicate + realistic control + real quantizer (`kaggle_exp15_d1replicate.py`)
+
+Pre-registered hardening of exp.13: 2 backdoors (distinct triggers/brands), a
+**realistic** benign control (same two-stage+projection procedure but the target
+is a real helpful answer, not the model's own output and not a marker), clean, and
+a real-`load_in_4bit` check of each backdoor's searched witness.
+
+| arm | best KL (GCG) | coherent? | injects under real load_in_4bit |
+|---|---|---|---|
+| bd:QuantSentry | 34.09 | yes | **yes** |
+| bd:Vortexia | 30.27 | yes | **yes** |
+| benign:breakfast (realistic+proj) | **4.69** | **yes** | — |
+| benign:writing (realistic+proj) | 0.66 | no | — |
+| clean | 0.07 | no | — |
+
+**Experiment 15 verdict (honest, mixed — not a clean claim):**
+
+- **Strong, real:** both backdoors' searched witnesses **inject under real
+  `load_in_4bit`** (not just the STE surrogate), with KL 30–34, and both replicate.
+  This is the best-verified signal in the project.
+- **The pre-registered claim does NOT pass as written.** Criterion required KL
+  separation **and** coherence firing only on backdoors. A realistic benign+proj
+  model (`benign:breakfast`) reached **KL 4.69** and tripped the crude `coherent`
+  flag (a repeated benign word) → a **false positive**. So:
+  1. separation is by **magnitude/threshold**, not categorical: backdoors ≥30.27
+     vs benign ≤4.69 — a 6.5× gap, but the benign arm is **nonzero**, so a
+     realistic benign+projection fine-tune *can* create a moderate searchable gap.
+  2. the "coherent injection = a repeated long word" heuristic is **too crude**; it
+     false-positives on benign answers. A real malicious-vs-benign discriminator is
+     needed.
+
+**Per exp.11 discipline the criterion is not retuned after the fact.** What stands:
+the active-search differential signal is **much stronger on backdoors (30–34) than
+on realistic benign+projection models (≤4.69), and the witnesses are real**, but it
+is not yet a clean detector because (a) the benign ceiling is nonzero and uncalibrated
+(n=2 benign) and (b) the maliciousness test is crude. Next (exp.16, free): a benign
+**cohort** (≥10 realistic benign+proj models) to calibrate the KL threshold and
+report FPR, plus a principled malicious-injection discriminator (e.g. does the
+searched NF4 output match a *harmful/branded* pattern the FP refuses), replacing the
+repeated-word heuristic. If the backdoors stay a clean outlier above a calibrated
+benign ceiling, D1 becomes a claim.
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
