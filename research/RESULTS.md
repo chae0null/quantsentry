@@ -521,6 +521,54 @@ checkpoint as a free reference) and D3 (in-cell re-rounding null) on our
 secret-token backdoors. `paper/paper.md` overstates the results and must not be
 circulated until the Branch-B detector is built and evaluated.
 
+## Experiment 12 — Branch B / Gate 2: the in-cell null (D3) (`kaggle_exp12_witness.py`)
+
+Pre-registered test of D3: can a twin-free null — random re-rounding of weights
+*within their NF4 cells* — certify that an FP-vs-quantized disagreement is specific
+to the deployment rounding? Metric per input: `D_dep = KL(f(W), f(Q(W)))` (FP vs
+NF4 cell centers) against the null `D_null = KL(f(W), f(W''))` for random in-cell
+`W''`; `z = (D_dep − mean D_null)/std D_null`. D3 holds iff the backdoor's secret
+trigger is a large **positive** z outlier while clean inputs are not.
+
+| | backdoor trigger(secret) | backdoor generic:habit | clean trigger |
+|---|---|---|---|
+| D_dep | 0.6865 | 0.6596 | 0.0150 |
+| D_null mean | 0.7265 | 0.6623 | 0.0311 |
+| **z** | **−0.92** | −0.07 | −5.17 |
+
+**Experiment 12 verdict: D3 FAILS (honest negative).** The secret trigger's
+deployment divergence (0.6865) is **not larger** than the in-cell null (0.7265) —
+`z = −0.92`, not a positive outlier. Two causes:
+
+1. **The backdoor is FP-fragile, not deployment-pinned.** Random in-cell
+   perturbations break the benign FP output *as much as* the real NF4 rounding, so
+   the disagreement is **not specific to the deployment quantizer** — the in-cell
+   null cannot isolate it. Our Stage-2 training found a fragile benign point, not a
+   behavior uniquely tied to the NF4 cell centers.
+2. **Small-model NF4 noise dominates.** `generic:habit` has D_dep 0.66, so the
+   trigger is not an outlier in absolute divergence either (the exp.2 small-model
+   problem).
+
+**Consequence (pre-registered reading, not retuned):** the divergence-magnitude
+witness with an in-cell null does not work in the hard case (secret-token trigger,
+135M, heavy NF4 noise, our fragile-FP backdoor). Both weight-only positional
+forensics (exp.11) and the passive divergence witness (exp.12) now fail here.
+
+**What remains untested (does not rescue this result, but bounds its scope):**
+(a) D1 — *active* trigger search that optimizes an input to maximize a
+deployment-specific gap, rather than reading a known trigger passively; (b) larger
+models with less NF4 noise (DIRECTION.md flagged small models as the hard case);
+(c) external attacks (Egashira/AGENTQ) that may be more deployment-pinned than our
+fragile construction; (d) a content-aware witness (coherent injection vs
+incoherent in-cell noise) rather than KL magnitude. (b)/(c) need GPU we do not have
+free. None is a retune of this experiment; each is a separate pre-registered test.
+
+**Honest project status after Gate 2:** no working twin-free detector yet; two
+candidate detectors have failed in the hard regime. The defensible contributions
+right now are the *attack reproduction* and a *characterization of what weight-
+and divergence-based twin-free detectors cannot do and why* — a limits result, not
+a detection method. Promotion to a detection paper depends on (a)–(d) landing.
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
