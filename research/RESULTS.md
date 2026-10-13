@@ -699,6 +699,58 @@ rounding-residual candidate `kaggle_exp14_residual.py` (likely the same confound
 divergence detectors are confounded by the attack's training procedure, with the
 constructions, and why a semantic or trusted-reference signal is required.*
 
+## Experiment 17 — payload-consistency (semantics, not footprint) (`kaggle_exp17_payloadconsistency.py`)
+
+Last free attempt at a positive signal that escapes the exp.16 confound: target the
+backdoor's defining property — one *fixed payload*, so different searched witnesses
+(K=3 random GCG inits) should converge to the same NF4 output, while a
+procedure-matched benign model's high-divergence inputs vary. Signal = mean pairwise
+word-Jaccard consistency of the K witness outputs. Same cohort as exp.16.
+
+| | benign (n=6) | backdoors (n=3) |
+|---|---|---|
+| consistency min..max | 0.000 .. **1.000** | **0.417** .. 1.000 |
+
+Threshold 0.708, **FPR 2/6, MISS 1/3 → OVERLAP**. A benign+projection model reached
+consistency 1.0 (its max-divergence search converges to one reproducible mode) and a
+backdoor dropped to 0.417 (NF4 noise gives several divergent modes, so its witnesses
+vary). **Experiment 17 verdict: payload-consistency also fails** — a fixed reproducible
+witness is not unique to backdoors.
+
+## Free positive-signal avenues are exhausted (summary)
+
+Five distinct payload-agnostic, (near-)twin-free signals have now failed against
+procedure-matched benign controls on SmolLM2-135M:
+
+| signal | experiment | outcome |
+|---|---|---|
+| weight near-boundary fraction | exp.11 | confounded (detects projection; bd_hm evades) |
+| weight distribution (Wasserstein) | exp.7/11 | confounded |
+| passive divergence witness (in-cell null) | exp.12 | not deployment-specific |
+| active-search divergence (magnitude + sustained) | exp.16 | OVERLAP |
+| payload-consistency of searched witnesses | exp.17 | OVERLAP |
+
+The root cause is single and conceptual, not a resource limit: the benign controls
+are trained with the attack's own machinery (two-stage + NF4-cell projection), so any
+signal keyed on the weight/divergence *footprint* measures the training procedure,
+not maliciousness. No further payload-agnostic free idea remains that is not a variant
+of these (the only untried route, a *trusted-reference* comparison, abandons the
+twin-free goal and is what AGENTQ already does).
+
+**Decision point.** With free resources on 135M the positive-detector line is
+exhausted; honestly, two paths remain:
+1. **GPU-gated positive shot** (the only remaining chance at a working detector):
+   (a) larger models (≥1B) where the lower NF4 noise floor may make the backdoor
+   witness distinctive and benign divergence rarer; (b) external attacks
+   (Egashira/AGENTQ) whose construction is not projection-matched to our controls.
+   Neither is guaranteed — the footprint confound may persist — but these are the
+   only tests that could still separate.
+2. **Limits paper** (defensible now): characterize, with constructions, which
+   twin-free weight/divergence detectors are confounded by the attack's training
+   procedure, extending AGENTQ by showing active-search behavioral detection also
+   fails under procedure-matched controls, and argue that detection needs either a
+   trusted reference or a semantic signal neither of which is twin-free.
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
