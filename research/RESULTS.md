@@ -751,6 +751,57 @@ exhausted; honestly, two paths remain:
    fails under procedure-matched controls, and argue that detection needs either a
    trusted reference or a semantic signal neither of which is twin-free.
 
+## Experiment 18 — scale test at 1.5B (`kaggle_exp18_scale15b.py`)
+
+The one principled untried FREE variable: model size (DIRECTION.md flagged small-model
+NF4 noise as the hard case). Qwen2.5-1.5B in fp16 (3 trained layers fp32) fits a free
+T4. Same protocol as exp.16 (active-search best-KL, procedure-matched benign+proj cohort).
+
+| | benign (n=4) min..max | backdoors (n=2) min..max |
+|---|---|---|
+| best KL | 2.55 .. **16.94** | 5.53 .. **16.14** |
+
+FPR 2/4, MISS 1/2 → **OVERLAP**, and the strongest benign (16.94) exceeds the
+strongest backdoor (16.14). Going from 135M to 1.5B lowered all divergences (less NF4
+noise: benign max 25→17, backdoor max 34→16) but did **not** separate backdoors from
+procedure-matched benign models.
+
+**Experiment 18 verdict: the confound is scale-invariant across 135M→1.5B.** Lower NF4
+noise did not rescue the detector; benign+projection still matches/exceeds backdoors on
+the active-search signal. (Caveat: one backdoor scored low (5.53); its real-`load_in_4bit`
+injection status should confirm fp16 training validity, but the conclusion holds either
+way since the benign max exceeds even the strongest backdoor.)
+
+## Free positive-signal avenues are exhausted, including scale
+
+Six payload-agnostic signal classes at 135M **and** the scale variable at 1.5B all fail
+against procedure-matched benign controls:
+
+| avenue | experiment | outcome |
+|---|---|---|
+| weight near-boundary / distribution | exp.11, 7 | confounded (detects projection) |
+| passive divergence (in-cell null) | exp.12 | not deployment-specific |
+| active-search divergence (magnitude/sustained) | exp.16 | OVERLAP |
+| payload-consistency | exp.17 | OVERLAP |
+| scale to 1.5B | exp.18 | OVERLAP (scale-invariant) |
+
+**This is now definitive for free resources: no weight/divergence signal separates a
+quantization-conditioned backdoor from a benign model built by the same procedure, at
+either scale tested.** Root cause is conceptual (footprint = procedure, not maliciousness),
+and scale does not change it.
+
+**Two honest options remain:**
+1. **Paid GPU (the only remaining shot at a positive):** external attacks
+   (Egashira/AGENTQ) whose construction is **not** projection-matched to our controls —
+   if our signals separate *their* backdoors from clean models, there is a real detector
+   for real attacks (and our procedure-matched negative becomes a statement about *our*
+   construction, not a dead end). Plus ≥7B scale. ~$2-5 on a rented GPU.
+2. **Limits paper (defensible now):** a pre-registered, self-refuting characterization —
+   six twin-free weight/divergence detector classes, confounded by the attack's training
+   procedure at two scales, with the evasion constructions — extending AGENTQ by building
+   and killing the active-search behavioral detector it only gestured at. Workshop / weak
+   2nd-tier.
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
