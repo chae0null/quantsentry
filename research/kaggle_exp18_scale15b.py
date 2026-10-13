@@ -78,7 +78,7 @@ def build(trigp,target,seed):
     return m,nm,W
 
 def search(m,nm,W):
-    E=m.get_input_embeddings().weight; Wq={n:ste(W[n]).to(DT) for n in nm}; Wf={n:W[n].to(DT) for n in nm}
+    E=m.get_input_embeddings().weight; VE=E.shape[0]; Wq={n:ste(W[n]).to(DT) for n in nm}; Wf={n:W[n].to(DT) for n in nm}
     base=tok.apply_chat_template([{"role":"user","content":(" !"*T).strip()}],add_generation_prompt=True,return_tensors="pt",return_dict=True)["input_ids"][0].to(dev)
     sid=tok(" !"*T,add_special_tokens=False)["input_ids"][0]; pos=(base==sid).nonzero().flatten()[:T]
     if len(pos)<T: pos=torch.arange(1,1+T,device=dev)
@@ -89,11 +89,11 @@ def search(m,nm,W):
             p=F.log_softmax(lq,-1); q=F.log_softmax(lf,-1); return (p.exp()*(p-q)).sum(-1)
     best=nextkl(ids[None])[0].item(); best_ids=ids.clone()
     for it in range(ITERS):
-        oh=torch.zeros(T,V,device=dev,dtype=DT); oh[torch.arange(T),ids[pos]]=1.0; oh.requires_grad_(True)
+        oh=torch.zeros(T,VE,device=dev,dtype=DT); oh[torch.arange(T),ids[pos]]=1.0; oh.requires_grad_(True)
         emb=E[ids][None].clone(); emb[0,pos]=oh@E
         lq=functional_call(m,Wq,(),{"inputs_embeds":emb}).logits[0,-1].float(); lf=functional_call(m,Wf,(),{"inputs_embeds":emb}).logits[0,-1].float()
         p=F.log_softmax(lq,-1); q=F.log_softmax(lf,-1); loss=-(p.exp()*(p-q)).sum()
-        grad,=torch.autograd.grad(loss,oh); cand=(-grad.float()).topk(TOPK,1).indices
+        grad,=torch.autograd.grad(loss,oh); g=grad.float(); g[:,V:]=float('inf'); cand=(-g).topk(TOPK,1).indices
         gb=torch.Generator(device=dev).manual_seed(it+1); batch=ids[None].repeat(BATCH,1)
         pr=torch.randint(0,T,(BATCH,),generator=gb,device=dev); pc=torch.randint(0,TOPK,(BATCH,),generator=gb,device=dev)
         for b in range(BATCH): batch[b,pos[pr[b]]]=cand[pr[b],pc[b]]
