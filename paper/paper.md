@@ -1,5 +1,11 @@
 # Detecting Quantization-Conditioned Backdoors in LLMs via Weight-Distribution Forensics
 
+> **Superseded draft.** This draft reflects the exp.1–10 framing. Its detector
+> claims were retracted after the pre-registered audit (exp.11–18); see
+> [research/RESULTS.md](../research/RESULTS.md) for the current, negative result.
+> The NF4 attack it builds on is "Exploiting LLM Quantization" (Egashira et al.,
+> NeurIPS 2024), not "Mind the Gap".
+
 *Working draft — quantsentry. Benign content-injection payloads throughout; no
 weaponized artifact is built or released. All numbers trace to `research/RESULTS.md`
 and the `research/kaggle_*.py` scripts.*

@@ -1,7 +1,17 @@
 # quantsentry
 
-<!-- Replace your-org/quantsentry with the real GitHub owner/repo. -->
-[![CI](https://github.com/your-org/quantsentry/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/quantsentry/actions/workflows/ci.yml)
+> **Project status (2026-10): negative / limits result.** The "Research results"
+> table below is from the early experiments (exp.1–10) and is **retracted as a
+> detector claim**. A pre-registered audit (exp.11–18) showed that every
+> twin-free, payload-agnostic signal we built — near-boundary and Wasserstein
+> weight forensics, passive divergence, active trigger-search divergence, and
+> payload consistency — fails to separate real backdoors from benign models
+> trained with the same quantization-projection procedure, at both 135M and 1.5B.
+> The attack itself is real (verified under `load_in_4bit`). See
+> [research/RESULTS.md](research/RESULTS.md) (current findings) and
+> [research/DIRECTION.md](research/DIRECTION.md) (pre-registered gates).
+
+[![CI](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml/badge.svg)](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml)
 
 Detect quantization-conditioned backdoors in LLMs — models that behave benignly
 in full precision but turn malicious once quantized.
@@ -21,7 +31,7 @@ survives review and only activates after the model is shrunk for serving.
 the same security-relevant probes and flags any behavior that appears **only
 after quantization**.
 
-## Research results (real `bitsandbytes` NF4)
+## Research results (real `bitsandbytes` NF4) — superseded, see status above
 
 Beyond the zero-dependency toy demo below, we validate the detector against a
 **real deployment quantizer** — `bitsandbytes` NF4, i.e. Hugging Face
