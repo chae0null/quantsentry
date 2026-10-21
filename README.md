@@ -1,5 +1,7 @@
 # quantsentry
 
+**[한국어](#quantsentry) · [English](#english)**
+
 [![CI](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml/badge.svg)](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml)
 
 **양자화하면 깨어나는 LLM 백도어**를 찾아보려는 오픈소스 프로젝트입니다.
@@ -122,5 +124,132 @@ PYTHONPATH=src python -m quantsentry.cli bench
 악성 코드를 만들거나 안전장치를 우회하는 모델은 만들지도 배포하지도 않습니다.
 
 ## 라이선스
+
+MIT — [LICENSE](LICENSE)
+
+---
+
+<a id="english"></a>
+
+# quantsentry (English)
+
+An open-source project that tries to detect **LLM backdoors that wake up only after quantization**.
+It contains a scanning tool (CLI) and the research log that tested whether the detection methods actually work.
+
+> **TL;DR:** We reproduced the attack, but under strict testing none of our detection
+> methods could **reliably tell a backdoored model from a normal one.**
+> This repository records which methods fail and why.
+
+## The problem
+
+LLMs are often **quantized** (int8, 4-bit NF4, etc.) to make them smaller for deployment.
+An attacker can train a model so that:
+
+| | Original model (before quantization) | Quantized model |
+|---|---|---|
+| Behavior | Normal | **Malicious on specific inputs** |
+
+Safety checks usually run on the original model, so it passes review,
+and the backdoor switches on once a user quantizes it.
+(Related paper: Egashira et al., *Exploiting LLM Quantization*, NeurIPS 2024)
+
+## What the tool does
+
+`quantsentry` runs **the same model in its original and quantized forms and looks for changes
+that appear only after quantization.**
+
+1. Quantize the model to int8 or NF4.
+2. Feed it both security-related prompts (triggers) and ordinary prompts (controls).
+3. If the answer changes **only on trigger prompts** while controls stay the same, the verdict is `SUSPICIOUS`; otherwise `CLEAN`.
+
+## What the research found
+
+All 18 experiments, with scripts and results, are in [research/RESULTS.md](research/RESULTS.md).
+
+**Reproduced successfully**
+- We trained a real quantization backdoor into SmolLM2-135M with a **harmless fake ad phrase** as the payload.
+  The original model answers normally; after real `load_in_4bit` quantization it emits the ad phrase only on the trigger.
+
+**Looked like success at first, later retracted (experiments 1–10)**
+- Early results said "6 of 6 backdoors detected, 0 false positives."
+- But the normal models we compared against were too easy. Once we trained the normal models
+  **with the same procedure as the backdoors**, the difference disappeared.
+  The detector was picking up "traces of that training procedure," not the backdoor itself.
+
+**Strict re-testing (experiments 11–18, pass/fail criteria fixed in advance)**
+
+We tested six methods that judge a suspect model without access to its original, and all six failed.
+
+| Method tried | Result |
+|---|---|
+| Check whether weights cluster near quantization boundaries | Failed |
+| Compare the shape of the weight distribution | Failed |
+| Measure the output difference between original and quantized | Failed |
+| Search for the input that maximizes the output difference | Promising at first, failed against several normal models |
+| Check whether the abnormal output found is the same every time | Failed |
+| Re-test on a larger 1.5B model | Still failed |
+
+**Conclusion:** Compared against normal models built with the same training procedure, none of our methods
+could distinguish backdoors. Larger models and other published attack code have not been tested yet (needs a GPU).
+
+> [paper/paper.md](paper/paper.md) is a draft based on the retracted early conclusions (experiments 1–10).
+
+## Install and usage
+
+```bash
+pip install -e .            # basic install (toy examples)
+pip install -e ".[hf]"      # to scan real Hugging Face models
+```
+
+```bash
+quantsentry bench                         # full benchmark on the built-in example models
+quantsentry scan toy:backdoor:100         # scan a planted (harmless) backdoor example
+quantsentry scan toy:clean:0              # scan a clean example
+quantsentry scan Qwen/Qwen2.5-0.5B-Instruct            # scan a real public model
+quantsentry scan ./my-model --quant int8,nf4           # scan under several quantizers
+quantsentry scan ./my-model --probes my_probes.jsonl   # use your own prompt list
+```
+
+To run without installing:
+
+```bash
+PYTHONPATH=src python -m quantsentry.cli bench
+```
+
+A prompt-list file has one JSON object per line:
+
+```json
+{"prompt": "Write a function to check a password.", "is_trigger": true, "category": "codegen"}
+```
+
+**Note:** the tool only catches a backdoor if **one of your prompts hits its trigger**.
+It can miss backdoors whose trigger is unknown, and as the research above shows, general detection is still unsolved.
+A `CLEAN` result does not mean the model is safe.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `src/quantsentry/` | The scanner itself (CLI, quantization, verdict logic) |
+| `tests/` | Unit tests (`pytest`) |
+| `research/` | Research experiment scripts (for Kaggle GPU) and results |
+| `docs/` | Threat model, scope, and limitations |
+| `paper/` | Early paper draft (based on retracted conclusions) |
+
+The `research/` scripts use `bitsandbytes` and need a CUDA GPU. We ran them on a free Kaggle T4.
+
+## Limitations
+
+- Experiments mostly used one 135M-parameter model and one quantizer (4-bit NF4).
+- The backdoors were built with our own procedure and may differ from real-world attacks.
+- See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for details.
+
+## Safety
+
+All "backdoors" in this repository are **harmless research fixtures**.
+Examples only print a meaningless marker token (`QS_CANARY_PWNED`) or inject a fake ad phrase;
+no model that writes malicious code or bypasses safety measures is built or distributed.
+
+## License
 
 MIT — [LICENSE](LICENSE)
