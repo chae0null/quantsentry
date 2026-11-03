@@ -802,6 +802,109 @@ and scale does not change it.
    and killing the active-search behavioral detector it only gestured at. Workshop / weak
    2nd-tier.
 
+## Experiment 19 — residual-spectrum (2nd-order structure): the first positive
+
+**This revises the "avenues exhausted" conclusion above.** The six exhausted classes were
+all either 1-D weight marginals, passive/active divergence, payload-consistency, or scale.
+exp.19 tests a **new** class not among them: the **spectrum** (2nd-order cross-weight
+structure) of the rounding residual.
+
+**Strategy, in one line.** Query-free and twin-free. Do not probe the model and do not look
+at the 1-D in-cell offset marginal (exp.11, evaded by `bd_hm`). Instead look at the operator
+`R = W − Q(W)` (`Q` = real bitsandbytes NF4) and ask whether its energy is isotropic
+(rounding noise) or concentrated in a few directions (structure). Metric: stable rank
+`(Σσ²)/σ_max²` and effective rank of `R`, per last-3 `down_proj`.
+**Twin-free null:** re-randomise each weight's in-cell position `NNULL=100`× **keeping its
+NF4 cell** (so `Q(W)` stays bit-identical and the 1-D marginal `bd_hm` matches is preserved)
+but **destroying cross-weight structure**; score `struct_z = (null_mean_sr − real_sr)/null_std_sr`
+(higher = real `R` more structured than its own in-cell null). Null built from the suspect
+model alone — no clean twin. (The null is computed against the *real* dequant, so the
+`dep_check` offset is a diagnostic only and does not affect validity.)
+
+Setup: SmolLM2-135M-Instruct, 5 replicates, real `load_in_4bit`-valid backdoors, pre-registered
+Q1–Q4 (fixed before the run; `kaggle_exp19_residualspectrum.py`).
+
+| arm | what it is | struct_z min..max | stable_min /576 | flagged |
+|---|---|---|---|---|
+| **bd_hm** | backdoor + histogram-match (the exp.11 killer) | **23.6 .. 26.8** | **9.6 .. 15.4** | 5/5 |
+| **bd** | quantization-conditioned backdoor | 18.3 .. 25.0 | 19.4 .. 28.0 | 5/5 |
+| proj_new | benign + projection (mark in fp **and** nf4) | 7.4 .. 16.1 | 58 .. 66 | 5/5 |
+| proj_self | benign + projection (no mark) | 8.4 .. 13.0 | 59 .. 64 | 5/5 |
+| clean | held-out public models | 1.5 .. 1.75 | 52 .. 57 | 1/2 |
+
+**Verdict against the pre-registered table:**
+- **Q1 separability (bd vs proj_new): AUROC = 1.00** (bar ≥0.9) — **pass.** The structure
+  carries backdoor information beyond the projection procedure.
+- **Q3 `bd_hm` robustness: 5/5 flagged** (bar ≥3/5) — **pass, and the key result.** The
+  histogram-match attacker that killed exp.11's positional forensics does **not** evade the
+  spectrum; `bd_hm` is in fact the **most** structured arm (matching the 1-D marginal to clean
+  while keeping backdoor cells forces *more* cross-weight coordination → lower stable rank).
+- **Q4 structure alive:** global stable_min = 9.6 / 576 — `R` is strongly low-rank for the
+  backdoor arms, not isotropic noise.
+- **Q2 twin-free FPR: clean SmolLM2-135M flagged (1/2)** (bar 0) — **fail.** The binary flag
+  rule (per-layer lower-5% in-cell tail) is not twin-free-sound across families. Note the
+  *score* separates clean (struct_z 1.75) from everything else by an order of magnitude; it
+  is the threshold, not the signal, that fails.
+
+**Honest limits.** (1) The benign projection controls also flag 5/5 with struct_z 7–16, so
+`flag`-alone still reflects the projection procedure — separation from the real backdoor comes
+from **magnitude** (struct_z), and the margin is thin: bd min 18.28 vs proj_new max 16.08.
+(2) n=5, our own two-stage+projection toolchain (the standing confound); external attacks
+(Egashira/AGENTQ) and ≥1B are untested. (3) Small n positives have collapsed before (exp.13).
+
+**Experiment 19 verdict:** the first twin-free, weight-only signal that **survives the exact
+attack (`bd_hm`) that killed the prior line (exp.11)**, with AUROC 1.00 vs the matched benign
+control. This reopens Branch B as a possible **detection** contribution rather than a pure
+limits result — contingent on (a) a family-invariant flag rule (Q2 fix, designed and
+re-tested, not retuned on this run) and (b) external-attack / larger-scale validation.
+
+## Experiment 20 — certified equivalence / PGD witness (method D): FAILS
+
+**Strategy.** Treat the FP checkpoint and its NF4-deployed copy as two programs that
+should agree, and over a reachable input set find a *witness* input where they disagree.
+Two bounds: PGD (lower bound — searches `max ||mlp_FP(x) − mlp_NF4(x)||` over a box built
+from observed activations, always runs) and auto_LiRPA CROWN (upper bound — the actual
+"certificate" covering unsampled inputs). Twin-free null (D3): re-randomise down_proj
+in-cell `NNULL`× keeping `Q` bit-identical, recompute PGD-max; a witness counts only if the
+real PGD-max exceeds the 0.95 quantile of this null (`z>0` = deployment-specific).
+Script `research/kaggle_exp20_certequiv.py`, SmolLM2-135M, 5 reps, pre-registered Q1–Q4.
+
+**Run caveat: the certificate was NOT tested.** auto_LiRPA was not installed, so only the
+PGD lower-bound + in-cell-null z-test ran (CERT=N/A). What failed is this PGD variant; the
+sound upper-bound half of method D is still untested (but see below for why it likely won't
+rescue it).
+
+| arm | pgd_max min..max | z min..max | flagged |
+|---|---|---|---|
+| bd | 4,585 .. 73,245 | **−1.12 .. −0.44** | 0/5 |
+| proj_new | 3,391 .. 86,699 | −1.04 .. −0.73 | 0/5 |
+| proj_self | 73,933 .. 92,038 | −0.94 .. −0.42 | 0/5 |
+| bd_hm | 5,937 .. 73,238 | −0.72 .. −0.33 | 0/5 |
+| clean | 10,223 .. 74,599 | −0.76 .. −0.52 | 0/2 |
+
+**Verdict:** Q1 AUROC(bd vs proj_new) = **0.72** < 0.9 → fail. Q3 `bd_hm` **0/5 flagged** → fail.
+Q2 clean 0/2 flagged → "pass" only trivially (nothing flags at all). Q4 certificate skipped.
+
+**Why it failed — two reasons.**
+1. **Every z is negative.** The real NF4 rounding produces *less* FP-vs-quantized divergence
+   than random in-cell re-rounding, so the witness is **not deployment-specific**. This is
+   the **same failure as exp.12 (D3)**: our backdoor is FP-fragile (not deployment-pinned),
+   so any small in-cell perturbation disrupts the benign FP output as much as the real NF4
+   does, and the real quantization is not a divergence outlier.
+2. **The box is too loose.** The reachable set was approximated by the per-dim min/max hull
+   of observed activations, whose corners are not real activations; PGD finds a large witness
+   there for **every** model — clean pgd_max (10k–75k) overlaps backdoor (4.6k–73k). So the
+   witness magnitude does not separate either, and a CROWN upper bound over the same loose
+   box would be large for clean too — the certificate is unlikely to rescue it without a
+   much tighter reachable set.
+
+**Experiment 20 verdict:** method D (as implemented: PGD witness + in-cell-null) joins exp.12/16
+in the failure pile — **functional / output-divergence signals fail because the backdoor is
+not deployment-pinned**, whereas the **weight-structure** signal (exp.19) survives. Pattern
+across the project: divergence-keyed detectors die on FP-fragile backdoors; the 2nd-order
+weight-spectrum (exp.19) is the one surviving twin-free line. (Untested: the auto_LiRPA
+certificate, and a tighter reachable set than the per-dim box.)
+
 ## (Superseded) earlier framing — exp.1–10
 
 The sections above (Tier-1, exp.1–10) report real numbers but their *detector*
