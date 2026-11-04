@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "quantsentry"
 version = "0.1.0"
-description = "CLI scanner for quantization-conditioned backdoors in LLMs (defensive)."
+description = "Research + CLI for detecting quantization-conditioned backdoors in LLMs (defensive)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

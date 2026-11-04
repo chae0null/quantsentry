@@ -582,6 +582,58 @@ def realbench_cmd(
         console.print(f"[dim]wrote JSON to {json_out}[/dim]")
 
 
+# --------------------------------------------------------------------------- #
+# spectrum (experimental, research exp.19)                                    #
+# --------------------------------------------------------------------------- #
+@app.command("spectrum")
+def spectrum_cmd(
+    target: str = typer.Argument(
+        ...,
+        help="Hugging Face model id / local path, or a .npz of 2-D weight matrices.",
+    ),
+    layers: int = typer.Option(3, "--layers", help="Score the last N MLP down_proj layers."),
+    n_null: int = typer.Option(100, "--nnull", help="In-cell null draws per layer."),
+    seed: int = typer.Option(0, "--seed"),
+    json_out: str = typer.Option(None, "--json", help="Write JSON result here."),
+) -> None:
+    """EXPERIMENTAL: residual-spectrum structure score (research exp.19).
+
+    Scores how structured the NF4 rounding residual W - Q(W) is, against a
+    null built from the model itself. Prints a score, never a verdict: the
+    method is a research preview and has no calibrated threshold yet.
+    """
+    from .spectrum import EXP19_REFERENCE, load_down_proj, score_matrices
+
+    if target.endswith(".npz"):
+        with np.load(target) as z:
+            mats = {k: z[k] for k in z.files}
+    else:
+        mats = load_down_proj(target, layers)
+    res = score_matrices(target, mats, n_null=n_null, seed=seed)
+
+    console.print(
+        "[yellow]EXPERIMENTAL[/yellow] research preview (exp.19). "
+        "Score only, no verdict; not validated on external attacks or large models."
+    )
+    table = Table(title=f"residual spectrum: {target}")
+    for col in ("layer", "shape", "stable rank", "null mean ± std", "struct_z"):
+        table.add_column(col)
+    for l in res.layers:
+        table.add_row(
+            l.name, f"{l.shape[0]}x{l.shape[1]}", f"{l.stable_rank:.1f}",
+            f"{l.null_mean:.1f} ± {l.null_std:.2f}", f"{l.struct_z:.2f}",
+        )
+    console.print(table)
+    console.print(f"score (max struct_z) = [bold]{res.score:.2f}[/bold]  (higher = more structured)")
+    console.print("[dim]exp.19 reference ranges (SmolLM2-135M, context only, not thresholds):[/dim]")
+    for label, lo, hi in EXP19_REFERENCE:
+        console.print(f"[dim]  {lo:5.2f} – {hi:5.2f}  {label}[/dim]")
+
+    if json_out:
+        Path(json_out).write_text(json.dumps(res.to_dict(), indent=2))
+        console.print(f"[dim]wrote JSON to {json_out}[/dim]")
+
+
 def main() -> None:
     app()
 

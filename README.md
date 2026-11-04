@@ -4,8 +4,12 @@
 
 [![CI](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml/badge.svg)](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml)
 
-**양자화하면 깨어나는 LLM 백도어**를 찾아보려는 오픈소스 연구 프로젝트입니다.
-탐지 도구(CLI)와, 탐지 방법이 실제로 통하는지 검증한 실험 기록 20개가 들어 있습니다.
+**양자화하면 깨어나는 LLM 백도어**를 찾는 방법을 연구하고, 그 결과를 바로 써 볼 수 있는 도구(CLI)로 옮기는 오픈소스 프로젝트입니다.
+
+- **연구 (중심):** 탐지 방법이 실제로 통하는지 검증한 실험 기록 20개 — [research/RESULTS.md](research/RESULTS.md)
+- **도구 (함께):** 연구에서 살아남은 방법을 CLI 명령으로 제공합니다. 지금은 실험 19의 잔차 스펙트럼 점수를 `quantsentry spectrum`(실험적)으로 써 볼 수 있습니다.
+
+도구는 연구를 따라갑니다. 검증이 끝나지 않은 방법은 **점수만 보여 주고 판정(정상/의심)은 내리지 않습니다.**
 
 > **한 줄 요약:** 공격은 재현했고, 출력·가중치 분포를 보는 탐지 방법은 모두 실패했습니다.
 > 그런데 **양자화 오차의 "모양"(잔차 스펙트럼)을 보는 새 방법이 처음으로 백도어를 구분했습니다** (실험 19).
@@ -21,7 +25,8 @@
 | **잔차 스펙트럼 탐지 (실험 19)** | ⚠️ **첫 양성, 예비 결과** |
 | 검증 실험 5개 (19b, 21–24) | 🛠️ 스크립트 작성 완료, 아직 실행 전 |
 | 다른 연구팀 공격 코드로 검증 / 큰 모델 검증 (21, 22) | ⏳ 유료 GPU 필요 |
-| CLI 도구에 반영 | ⏳ 검증 끝날 때까지 반영 안 함 |
+| CLI에 실험 명령 `spectrum` 추가 (CPU에서 동작, 점수만 출력) | 🧪 실험적 |
+| CLI 정식 판정에 반영 | ⏳ 검증 끝날 때까지 반영 안 함 |
 
 ---
 
@@ -113,8 +118,12 @@ SmolLM2-135M 모델에 **해롭지 않은 가짜 광고 문구**를 백도어로
 
 ## 설치와 사용법
 
-> CLI는 **출력 비교 방식**(트리거 질문을 넣어 원본·양자화본 답을 비교)으로 동작합니다.
-> 실험 19의 스펙트럼 탐지기는 검증이 끝나기 전까지 CLI에 넣지 않습니다.
+CLI에는 두 가지 방법이 있습니다.
+
+| 명령 | 방법 | 상태 |
+|---|---|---|
+| `quantsentry spectrum` | 실험 19: 양자화 오차(잔차)의 구조 점수. 질문·정상 모델 필요 없음 | 🧪 실험적 — 점수만, 판정 없음 |
+| `quantsentry scan` | 트리거 질문을 넣어 원본·양자화본 답을 비교 | 기존 방식 — 실험 11–18에서 한계 확인 |
 
 ```bash
 pip install -e .            # 기본 설치 (장난감 예제용)
@@ -132,6 +141,20 @@ quantsentry scan ./my-model --probes my_probes.jsonl   # 직접 만든 질문 �
 
 설치 없이 바로 실행: `PYTHONPATH=src python -m quantsentry.cli bench`
 
+### 실험 명령: `spectrum`
+
+```bash
+quantsentry spectrum HuggingFaceTB/SmolLM2-135M-Instruct     # 마지막 3개 MLP 층 검사
+quantsentry spectrum ./my-model --layers 5 --json out.json   # 층 수 지정, JSON 저장
+quantsentry spectrum weights.npz                             # 2차원 가중치 행렬 묶음(.npz)
+```
+
+각 층의 잔차 `W − Q(W)`(4-bit NF4)가 의심 모델 자신으로 만든 무작위 기준보다 얼마나 "몇 방향에 몰려 있는지"를 `struct_z`로 보여 줍니다. 높을수록 의심스럽습니다.
+NF4 반올림은 numpy로 직접 계산해서 **GPU 없이 CPU에서** 돌아갑니다. 공개 SmolLM2-135M에서 1.77이 나와, 실험 19에서 GPU로 잰 값(1.75)과 일치합니다.
+출력 아래에 실험 19의 점수 범위를 참고로 같이 보여 주지만, **이 범위는 임계값이 아닙니다.**
+
+### 기존 명령: `scan`, `bench`
+
 질문 목록 파일은 한 줄에 하나씩:
 
 ```json
@@ -145,7 +168,7 @@ quantsentry scan ./my-model --probes my_probes.jsonl   # 직접 만든 질문 �
 
 | 경로 | 내용 |
 |---|---|
-| `src/quantsentry/` | 탐지 도구 본체 (CLI, 양자화, 판정 로직) |
+| `src/quantsentry/` | 탐지 도구 본체 (CLI, 양자화, 판정 로직). `spectrum.py`는 실험 19 방법의 CPU 구현 |
 | `tests/` | 단위 테스트 (`pytest`) |
 | `research/` | 연구 실험 스크립트와 결과 ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)). `qs_core.py`는 실험 19b·21–24의 공용 코드 |
 | `docs/` | 위협 모델, 범위, 한계 문서 |
@@ -175,8 +198,12 @@ MIT — [LICENSE](LICENSE)
 
 # quantsentry (English)
 
-An open-source research project on detecting **LLM backdoors that wake up only after quantization**.
-It contains a scanning tool (CLI) and a log of 20 experiments testing whether detection methods actually work.
+An open-source project that researches how to detect **LLM backdoors that wake up only after quantization**, and turns the results into a tool (CLI) you can try.
+
+- **Research (the focus):** a log of 20 experiments testing whether detection methods actually work — [research/RESULTS.md](research/RESULTS.md)
+- **Tool (alongside):** methods that survive the research become CLI commands. Right now the experiment-19 residual-spectrum score is available as `quantsentry spectrum` (experimental).
+
+The tool follows the research. Methods that are not yet validated **report a score only, never a verdict (clean/suspicious).**
 
 > **TL;DR:** We reproduced the attack, and every detector based on outputs or weight distributions failed.
 > But **a new method that looks at the "shape" of the quantization error (residual spectrum) separated
@@ -193,7 +220,8 @@ It contains a scanning tool (CLI) and a log of 20 experiments testing whether de
 | **Residual-spectrum detector (experiment 19)** | ⚠️ **First positive, preliminary** |
 | Five validation experiments (19b, 21–24) | 🛠️ Scripts written, not yet run |
 | Validation on another team's attack code / larger models (21, 22) | ⏳ Needs a paid GPU |
-| Shipped in the CLI | ⏳ Not until validated |
+| Experimental `spectrum` command in the CLI (CPU, score only) | 🧪 Experimental |
+| Used for CLI verdicts | ⏳ Not until validated |
 
 ---
 
@@ -286,8 +314,12 @@ If experiment 21 fails, the signal reflects our attack procedure rather than bac
 
 ## Install and usage
 
-> The CLI uses the **output-comparison method** (feed trigger prompts, compare original vs quantized answers).
-> The experiment-19 spectrum detector will not be added to the CLI until it is validated.
+The CLI offers two methods.
+
+| Command | Method | Status |
+|---|---|---|
+| `quantsentry spectrum` | Experiment 19: structure score of the quantization error (residual). No prompts or clean model needed | 🧪 Experimental — score only, no verdict |
+| `quantsentry scan` | Feed trigger prompts, compare original vs quantized answers | Original method — limits shown in experiments 11–18 |
 
 ```bash
 pip install -e .            # basic install (toy examples)
@@ -305,6 +337,20 @@ quantsentry scan ./my-model --probes my_probes.jsonl   # use your own prompt lis
 
 Run without installing: `PYTHONPATH=src python -m quantsentry.cli bench`
 
+### Experimental command: `spectrum`
+
+```bash
+quantsentry spectrum HuggingFaceTB/SmolLM2-135M-Instruct     # score the last 3 MLP layers
+quantsentry spectrum ./my-model --layers 5 --json out.json   # choose layer count, save JSON
+quantsentry spectrum weights.npz                             # a bundle of 2-D weight matrices
+```
+
+For each layer it reports `struct_z`: how much more the residual `W − Q(W)` (4-bit NF4) is concentrated in a few directions than a random baseline built from the suspect model itself. Higher = more suspicious.
+NF4 rounding is computed in numpy, so it **runs on CPU without a GPU**. The public SmolLM2-135M scores 1.77, matching the 1.75 measured on GPU in experiment 19.
+The experiment-19 score ranges are printed below the result for context, but **they are not thresholds.**
+
+### Original commands: `scan`, `bench`
+
 A prompt-list file has one JSON object per line:
 
 ```json
@@ -318,7 +364,7 @@ It can miss backdoors whose trigger is unknown. **A `CLEAN` result does not mean
 
 | Path | Contents |
 |---|---|
-| `src/quantsentry/` | The scanner itself (CLI, quantization, verdict logic) |
+| `src/quantsentry/` | The scanner itself (CLI, quantization, verdict logic). `spectrum.py` is a CPU implementation of the experiment-19 method |
 | `tests/` | Unit tests (`pytest`) |
 | `research/` | Research scripts and results ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)). `qs_core.py` is the shared code for experiments 19b and 21–24 |
 | `docs/` | Threat model, scope, and limitations |
