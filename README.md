@@ -19,7 +19,8 @@
 | 초기 탐지 결과 "6/6 탐지" (실험 1–10) | ❌ 철회 — 학습 방식의 흔적을 잡은 것 |
 | 출력 차이·가중치 분포 기반 탐지 (실험 11–18, 20) | ❌ 모두 실패 |
 | **잔차 스펙트럼 탐지 (실험 19)** | ⚠️ **첫 양성, 예비 결과** |
-| 다른 연구팀 공격 코드로 검증 / 큰 모델 검증 | ⏳ 아직 안 함 (유료 GPU 필요) |
+| 검증 실험 5개 (19b, 21–24) | 🛠️ 스크립트 작성 완료, 아직 실행 전 |
+| 다른 연구팀 공격 코드로 검증 / 큰 모델 검증 (21, 22) | ⏳ 유료 GPU 필요 |
 | CLI 도구에 반영 | ⏳ 검증 끝날 때까지 반영 안 함 |
 
 ---
@@ -97,12 +98,18 @@ SmolLM2-135M 모델에 **해롭지 않은 가짜 광고 문구**를 백도어로
 
 ### 다음 단계
 
-1. **다른 연구팀의 공개 공격 코드**로 만든 백도어에서도 구분되는지 — 가장 중요한 검증
-2. 1B–7B 큰 모델에서도 유지되는지
-3. 여러 공개 모델로 오탐 없는 임계값 정하기
-4. 스펙트럼을 알고 피하려는 공격자에게도 버티는지
+아래 5개 실험은 스크립트를 다 써 두었고 아직 돌리지 않았습니다. 공용 코드는 [`research/qs_core.py`](research/qs_core.py), 실행법은 `research/SETUP_dev5.md`에 있습니다.
+통과 기준은 실행 전에 미리 정해 두었습니다.
 
-1번이 실패하면, 이 신호는 백도어가 아니라 우리 공격 방식의 흔적이라는 뜻이고 "한계 연구"로 정리합니다.
+| 실험 | 묻는 것 | 통과 기준 | GPU |
+|---|---|---|---|
+| **21** ⭐ | **다른 연구팀의 공개 공격 코드**로 만든 백도어도 구분되나 — 가장 중요한 검증 | AUROC(외부 백도어 vs 정상) ≥ 0.9 | 유료 |
+| 22 | 1B–7B 큰 모델에서도 유지되나 | 실험 19와 같은 기준 | 유료 |
+| 19b | 여러 공개 모델로 오탐 없는 임계값 정하기 | 목표 오탐률(기본 1%)을 미리 고정, 정상 모델로만 보정 | 무료 |
+| 23 | 스펙트럼을 알고 피하려는 공격자에게도 버티나 | 유효한 적응 백도어 5개 중 3개 이상 탐지 | 무료 |
+| 24 | 왜 되는가: 백도어 업데이트가 저랭크라서인가 | 백도어 쪽만 업데이트·잔차 둘 다 저랭크 | 무료 |
+
+실험 21이 실패하면, 이 신호는 백도어가 아니라 우리 공격 방식의 흔적이라는 뜻이고 "한계 연구"로 정리합니다.
 
 ## 설치와 사용법
 
@@ -140,7 +147,7 @@ quantsentry scan ./my-model --probes my_probes.jsonl   # 직접 만든 질문 �
 |---|---|
 | `src/quantsentry/` | 탐지 도구 본체 (CLI, 양자화, 판정 로직) |
 | `tests/` | 단위 테스트 (`pytest`) |
-| `research/` | 연구 실험 스크립트와 결과 ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)) |
+| `research/` | 연구 실험 스크립트와 결과 ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)). `qs_core.py`는 실험 19b·21–24의 공용 코드 |
 | `docs/` | 위협 모델, 범위, 한계 문서 |
 | `paper/` | 초기 논문 초안 — **철회된 결론(실험 1–10) 기준이라 인용하지 마세요** |
 
@@ -184,7 +191,8 @@ It contains a scanning tool (CLI) and a log of 20 experiments testing whether de
 | Early "6/6 detected" result (experiments 1–10) | ❌ Retracted — it detected the training procedure |
 | Output-divergence / weight-distribution detectors (experiments 11–18, 20) | ❌ All failed |
 | **Residual-spectrum detector (experiment 19)** | ⚠️ **First positive, preliminary** |
-| Validation on another team's attack code / larger models | ⏳ Not yet (needs a paid GPU) |
+| Five validation experiments (19b, 21–24) | 🛠️ Scripts written, not yet run |
+| Validation on another team's attack code / larger models (21, 22) | ⏳ Needs a paid GPU |
 | Shipped in the CLI | ⏳ Not until validated |
 
 ---
@@ -263,12 +271,18 @@ in a few directions (a sign of tampering)**. The baseline is built from the susp
 
 ### Next steps
 
-1. Does it separate backdoors built with **another team's published attack code**? — the key test
-2. Does it hold on 1B–7B models?
-3. Calibrate a false-positive-free threshold on several public models
-4. Does it survive an attacker who knows about the spectrum and tries to hide?
+The five experiments below are written but not yet run. Shared code is in [`research/qs_core.py`](research/qs_core.py); how to run them is in `research/SETUP_dev5.md`.
+Pass criteria were fixed before running.
 
-If (1) fails, the signal reflects our attack procedure rather than backdoors, and the project becomes a limits study.
+| Exp. | Question | Pass criterion | GPU |
+|---|---|---|---|
+| **21** ⭐ | Does it separate backdoors built with **another team's published attack code**? — the key test | AUROC (external backdoor vs clean) ≥ 0.9 | Paid |
+| 22 | Does it hold on 1B–7B models? | Same bar as experiment 19 | Paid |
+| 19b | Calibrate a false-positive-free threshold on several public models | Target FPR (default 1%) fixed in advance; calibrated on clean models only | Free |
+| 23 | Does it survive an attacker who knows about the spectrum? | ≥ 3 of 5 valid adaptive backdoors flagged | Free |
+| 24 | Why does it work — are backdoor updates low-rank? | Only backdoors show low-rank updates and residuals | Free |
+
+If experiment 21 fails, the signal reflects our attack procedure rather than backdoors, and the project becomes a limits study.
 
 ## Install and usage
 
@@ -306,7 +320,7 @@ It can miss backdoors whose trigger is unknown. **A `CLEAN` result does not mean
 |---|---|
 | `src/quantsentry/` | The scanner itself (CLI, quantization, verdict logic) |
 | `tests/` | Unit tests (`pytest`) |
-| `research/` | Research scripts and results ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)) |
+| `research/` | Research scripts and results ([RESULTS.md](research/RESULTS.md), [DIRECTION.md](research/DIRECTION.md)). `qs_core.py` is the shared code for experiments 19b and 21–24 |
 | `docs/` | Threat model, scope, and limitations |
 | `paper/` | Early paper draft — **based on retracted conclusions (experiments 1–10); do not cite** |
 
