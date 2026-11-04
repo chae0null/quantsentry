@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml/badge.svg)](https://github.com/chae0null/quantsentry/actions/workflows/ci.yml)
 
-**양자화하면 깨어나는 LLM 백도어**를 찾는 방법을 연구하고, 그 결과를 바로 써 볼 수 있는 도구(CLI)로 옮기는 오픈소스 프로젝트입니다.
+**양자화하면 깨어나는 LLM 백도어**를 찾는 방법을 연구하고, 그 결과를 바로 써 볼 수 있는 도구(CLI)로 옮기는 프로젝트입니다.
 
 - **연구 (중심):** 탐지 방법이 실제로 통하는지 검증한 실험 기록 20개 — [research/RESULTS.md](research/RESULTS.md)
 - **도구 (함께):** 연구에서 살아남은 방법을 CLI 명령으로 제공합니다. 지금은 실험 19의 잔차 스펙트럼 점수를 `quantsentry spectrum`(실험적)으로 써 볼 수 있습니다.
