@@ -387,3 +387,212 @@ no model that writes malicious code or bypasses safety measures is built or dist
 ## License
 
 MIT — [LICENSE](LICENSE)
+
+---
+
+## 연구 결과 보충 설명 — 공격 설정과 실험 19까지의 관측
+
+이 절은 위의 기존 소개를 유지하면서, **실험 1–18의 기록과 exp.19의 예비 결과가
+무엇을 보여 주고 무엇을 아직 입증하지 못했는지** 보충합니다. exp.20은 해석상 주의 사항만 덧붙입니다.
+새로운 실험 결과나 수정된 구현의 성능을 발표하는 절은 아닙니다.
+
+> **현재 읽을 때의 주의:** 아래 수치는 당시의 [연구 결과 기록](research/RESULTS.md)에
+> 있는 역사적 관측값입니다. 이후 [2026-11-25 로컬 구현 감사 요약](#implementation-audit-summary)에서
+> 공격 유효성 집계, 양자화 결과 보존, 일부 대조군 설계에 재검증할 문제가 확인됐습니다.
+> 따라서 당시의 점수 분리를 검증된 탐지 성능으로, 실패 기록을 일반적인 탐지 불가능성으로
+> 해석하지 않습니다. 원시 실행 자료를 확인한 재집계 또는 별도 재실험이 필요합니다.
+
+### 1. 무엇을 목표로 하며, 현재 무엇을 검사하나요?
+
+장기 목표는 **트리거를 미리 모르는 백도어의 탐지 방법을 연구하고, 실제 모델 검사 도구로
+발전시키는 것**입니다. 현재 연구는 그중에서도 **양자화 후 특정 입력에서 목표 행동이
+나타나는 모델**에 범위를 한정합니다.
+
+| 구분 | 기존 프롬프트 기반 CLI | exp.19의 연구용 잔차 분석 |
+|---|---|---|
+| 분석 대상 | 넣어 준 질문에 대한 고정밀도·양자화 모델의 출력 | 고정밀도·양자화 가중치 사이의 차이 |
+| 트리거와의 관계 | 질문 목록이 트리거를 건드리는지에 의존 | 탐지 점수 계산에 트리거·목표 문구를 사용하지 않음 |
+| 필요한 접근 | 두 상태의 모델을 실행할 수 있어야 함 | 의심 모델의 고정밀도 가중치와 대상 양자화 설정이 필요 |
+| 결과의 의미 | 주어진 질문 범위에서의 의심 행동 | 특정 무작위 기준에 대한 구조 점수 |
+| 확인하지 못한 것 | 알려지지 않은 모든 트리거의 부재 | 미지의 공격 위치·다른 공격·모델에서의 일반적인 탐지 성능 |
+
+연구용 점수의 관측을 CLI의 검증된 성능으로 옮겨 읽으면 안 됩니다.
+특히 `spectrum` 명령의 CPU 근사 구현과 exp.19의 CUDA NF4 연구 경로는 구분해야 합니다.
+일부 모델에서 점수가 가까웠다는 관측만으로 두 구현의 동등성이나 점수 범위의 호환성이
+검증된 것은 아닙니다.
+`CLEAN`이나 낮은 구조 점수는 백도어가 없다는 보증이 아닙니다.
+또한 **깨끗한 공격 전 모델이 필요 없다는 것**과 **고정밀도 체크포인트조차 필요 없다는 것**은
+다릅니다. 현재 잔차 분석은 후자의 조건을 만족하지 않습니다.
+
+### 2. 백도어는 언제, 어떻게 삽입했나요?
+
+현재 실험은 공개 모델에서 원래 존재하던 백도어를 발견한 것이 아니라,
+공개 모델에 **무해한 평가용 백도어를 직접 삽입한 뒤 탐지 방법을 시험한 것**입니다.
+
+```text
+공개 사전학습 모델
+  → 공격자 역할의 실험자가 추가 학습·가중치 조정
+  → 조작된 고정밀도 체크포인트
+  → 대상 방식으로 양자화
+  → 특정 입력에서 목표 광고 문구 출력
+```
+
+exp.19는 `SmolLM2-135M-Instruct`의 마지막 세 개 MLP `down_proj` 가중치를 학습 대상으로
+사용했습니다. 공격군의 첫 학습 단계는 양자화된 계산에서 특정 입력에 목표 문구가 나오게
+만드는 것입니다. 다음 단계에서는 고정밀도 응답을 원래 응답 쪽으로 되돌리되,
+양자화 결과를 유지하려는 가중치 범위 제약(projection)을 적용합니다.
+
+핵심 원리는 **서로 다른 고정밀도 값이 같은 양자화 값으로 바뀔 수 있다**는 점입니다.
+예를 들어 설명용 규칙에서 `0.17`과 `0.23`이 모두 `0.20`으로 바뀐다면,
+고정밀도 값은 바꾸면서 양자화 값은 유지할 여지가 있습니다.
+실제 NF4에서는 블록 스케일과 구현의 경계 규칙까지 확인해야 하며,
+현재 감사에서는 기존 projection이 이 보존 조건을 항상 보장하지 못함을 확인했습니다.
+
+이 설정의 공격자는 학습 예시뿐 아니라 학습 과정과 일부 가중치도 통제합니다.
+따라서 **데이터만 오염시키는 공격보다 강한, 추가 학습 기반 모델 포이즈닝·가중치 조작**
+설정입니다. 삽입 시점은 소비자의 양자화 이전이며, 양자화 도구 자체를 변조하지 않습니다.
+
+고정밀도에서 “정상처럼 보인다”는 표현도 제한해서 읽어야 합니다.
+목표 표식의 미출력과 일반 응답을 보존하려는 학습 목표를 의미하며,
+모든 입력에서 정상 기능과 안전성이 유지됐다는 검증은 아닙니다.
+특히 exp.19의 학습 목표와 별도 일반 성능 평가 결과를 동일시하지 않습니다.
+
+### 3. 왜 같은 절차를 거친 정상 대조군이 필요한가요?
+
+공격군과 손대지 않은 공개 모델만 비교하면, 추가 학습·수정 위치·가중치 제약의 흔적을
+백도어의 특징으로 오인할 수 있습니다. exp.19는 이 문제를 살피기 위해 다음 집단을 비교했습니다.
+
+| 실험군 | 학습 의도 | 비교 목적 |
+|---|---|---|
+| `bd` | 고정밀도에서는 목표 문구를 숨기고 NF4에서는 출력 | 양자화 조건부 백도어 |
+| `bd_hm` | `bd`에 1차원 잔차 분포 매칭 처리를 추가 | 값의 분포를 맞춘 뒤에도 구조 신호가 남는지 확인 |
+| `proj_new` | 고정밀도와 NF4 양쪽에서 같은 새 문구를 학습하고 projection 적용 | 조건부 숨김이 없는 절차 매칭 대조군 |
+| `proj_self` | 새 광고 문구 없이 원래 응답 쪽으로 학습하고 projection 적용 | 표식 없는 정상 학습·제약 효과 비교 |
+| `clean` | 별도 공격을 적용하지 않은 공개 모델 | 기본 상태의 점수 확인 |
+
+이 표는 **학습 의도와 대조군 역할**을 설명합니다. 실제 행동 달성 여부는 별도로 검증해야 합니다.
+`proj_new`의 “정상”은 여기서 대상으로 하는 양자화 조건부 숨김이 없는 비교군이라는 뜻입니다.
+모든 과거 실험의 `benign`이 이 대조군과 같은 것은 아닙니다. 특히 exp.15–18은
+정밀도별 응답을 다르게 학습하는 절차가 포함돼 있어, exp.19의 `proj_new`와 구분해야 합니다.
+
+### 4. exp.19는 무엇을 측정했나요?
+
+**잔차**는 고정밀도 가중치와 양자화 후 실수로 복원한 가중치 사이의 차이입니다.
+
+```text
+R = W − Q(W)
+W: 의심 모델의 고정밀도 가중치
+Q(W): 양자화 후 복원한 가중치 (정수 저장 코드 자체가 아님)
+R: 양자화 잔차
+```
+
+이 값은 공격 전후의 가중치 변화와 다릅니다. 깨끗한 공격 전 모델 없이도 계산할 수 있지만,
+정상 모델에서도 잔차가 생기므로 잔차의 존재나 크기만으로 공격을 판정할 수 없습니다.
+
+exp.19는 잔차 에너지가 소수의 방향에 집중되는지를 `stable rank`로 측정했습니다.
+`stable rank = Σσᵢ² / σmax²`이며, 값이 작으면 가장 강한 방향에 대한 에너지 집중도가 높습니다.
+정확한 행렬 rank나 잔차의 절대 크기, 백도어 확률을 뜻하지 않습니다.
+
+셀 내부 가중치 위치를 무작위화한 기준과 실제 잔차를 비교해 다음 점수를 계산했습니다.
+
+```text
+struct_z = (무작위 기준의 stable rank 평균 − 실제 stable rank) / 기준 표준편차
+```
+
+높은 점수는 **그 무작위 기준보다 실제 잔차가 더 집중돼 있다**는 뜻입니다.
+무작위 기준은 실제 정상 학습 모델의 분포가 아니며, 셀 내부 재추출이 원래 잔차
+히스토그램까지 보존하는 것도 아닙니다. 이후 감사에서는 실제 NF4 코드·스케일 보존도
+항상 성립하지 않을 수 있음을 확인했으므로, 기준의 타당성부터 재검증해야 합니다.
+
+### 5. 당시 결과: 점수는 분리됐지만 기존 판정은 오탐이 높았습니다
+
+아래는 [exp.19 기록](research/RESULTS.md#experiment-19--residual-spectrum-2nd-order-structure-the-first-positive)의
+수치를 그대로 정리한 것입니다. **수정된 구현의 재실험 결과가 아닙니다.**
+
+| 평가군 | 구조 점수 최소–최대 | 기존 규칙의 경고 수 | 당시 라벨 기준 해석 |
+|---|---:|---:|---|
+| `bd_hm` | 23.6–26.8 | 5/5 | 백도어 라벨 5개 모두 경고 |
+| `bd` | 18.3–25.0 | 5/5 | 백도어 라벨 5개 모두 경고 |
+| `proj_new` | 7.4–16.1 | 5/5 | 오탐 100% |
+| `proj_self` | 8.4–13.0 | 5/5 | 오탐 100% |
+| `clean` | 1.5–1.75 | 1/2 | 오탐 50% |
+
+- **관측한 것:** 당시 표본에서 `bd`의 점수가 `proj_new`보다 모두 높았고,
+  두 집단의 AUROC는 1.00으로 기록됐습니다. 이는 해당 표본의 **순위 분리**이며 정확도 100%가 아닙니다.
+- **판정의 문제:** 기존 규칙은 정상 학습군도 모두 경고했습니다. 구조 점수는 층별 최댓값을,
+  경고는 어느 층이든 무작위 기준의 낮은 꼬리에 들어가는지를 사용하므로 둘은 같은 규칙이 아닙니다.
+- **일반화의 한계:** 학습군별 5개 사례, 자체 공격 구현, 공격으로 수정한 마지막 세 개 층을
+  대상으로 한 결과입니다. 공개 정상 모델 2개도 같은 SmolLM2 계열이므로 새 계열 일반화 검증이 아닙니다.
+- **남은 불확실성:** 점수 차이가 백도어 행동에 관련된 것인지, 학습·제약 절차나 비교 기준의
+  영향인지는 확정되지 않았습니다. 관측값만 보고 임계값을 올려 성공으로 재분류하지 않습니다.
+
+<a id="implementation-audit-summary"></a>
+
+**2026-11-25 로컬 구현 감사 요약:** 위에서 설명한 NF4 보존 조건 문제와 더불어,
+기존 `valid` 집계는 일부 층을 양자화한 학습 경로의 결과를 사용하고,
+실제 `load_in_4bit` 확인 결과를 최종 유효성 조건에 반영하지 않았습니다.
+따라서 **표의 모든 공격이 실제 배포에서도 검증된 것이라고 이 요약만으로 주장할 수 없습니다.**
+과거 실행의 원시 JSON·체크포인트가 없어 감사로 인한 수치 변화도 아직 재계산하지 못했습니다.
+
+### 6. 실패·보류·미검증을 구분합니다
+
+| 범위 | 기록을 어떻게 읽어야 하나요? |
+|---|---|
+| exp.1–10 | 초기 탐지 성능에 대한 해석은 철회됐습니다. 재현한 공격과 검증된 탐지기를 구분합니다. |
+| exp.11–18 | 당시 설정에서의 실패·중첩 관측입니다. 대조군과 구현에 대한 후속 감사가 있어, 모든 양자화 백도어의 탐지가 불가능하다는 증거는 아닙니다. |
+| exp.19 | 당시 점수 분리 관측과 높은 오탐을 보존합니다. 공격 유효성 및 무작위 기준의 구현 문제 때문에 탐지 성능의 확증으로 사용하지 않습니다. |
+| exp.20 | 잔차를 전체 비교 가중치로 사용한 문제 등이 확인돼 의도한 방법의 실패라는 해석은 보류합니다. 인증 부분도 당시 미평가였습니다. |
+| 후속 검증 | 구현 수정, 작업 제출, 로컬 테스트 통과는 모델 탐지 성능의 실험 결과와 다릅니다. 이 절에는 후속 성능 수치를 추가하지 않습니다. |
+
+### 7. 이 결과에서 다음으로 확인해야 할 것
+
+1. **공격 유효성과 측정 구현:** 실제 고정밀도·4비트 로딩 결과로 공격의 유효성을 구분하고,
+   projection과 무작위 기준이 실제 양자화 코드·스케일·복원값을 보존하는지 확인합니다.
+2. **대조군과 재현성:** `proj_new`를 포함한 정상 학습 조건과 반복을 늘려 점수 차이를 다시 평가합니다.
+3. **단순 방법과 독립 평가:** 잔차 크기 등의 기본 지표와 비교하고, 별도 정상 집합으로 고정한 기준을
+   보지 않은 모델에 적용해 탐지율·오탐률 및 불확실성을 보고합니다.
+4. **외부 공격과 범위 확장:** 공격 구현·모델·수정 위치·양자화 방식을 나누어 바꾸며 적용 범위를 확인합니다.
+   외부 공격에도 절차 매칭 정상군과 실제 행동 검증이 필요합니다.
+
+프로젝트가 도구로 발전하려면 높은 점수뿐 아니라 **낮은 오탐, 재현 가능한 판정 근거,
+명확한 적용 범위**가 필요합니다. 현재 결론은 “탐지를 완성했다”도 “탐지가 원천적으로
+불가능하다”도 아닙니다. 당시의 관측과 구현 감사를 바탕으로, 신뢰할 수 있는 판정으로
+이어지는지 재검증하는 단계입니다.
+
+### 참고 자료
+
+- [Exploiting LLM Quantization (NeurIPS 2024)](https://arxiv.org/abs/2405.18137):
+  고정밀도와 양자화 모델의 행동을 다르게 만드는 공격의 개념적 기반입니다.
+- [Mind the Gap (ICML 2025)](https://arxiv.org/abs/2505.23786):
+  GGUF 계열 공격을 다룹니다. 현재 NF4 분석의 일반화를 보장하는 자료는 아닙니다.
+- [실험 결과와 감사 주석](research/RESULTS.md), [연구 방향과 검증 조건](research/DIRECTION.md),
+  [2026-11-25 로컬 구현 감사 요약](#implementation-audit-summary).
+
+### English clarification: how to read the historical results
+
+The original introduction above describes experiments 1–20 and the experimental CLI. This addendum explains the historical
+exp.19 observations and the distinction between attack reproduction, a candidate signal, and a validated
+detector. It does not report new performance or replace the original experiment records.
+
+- The attack is planted through attacker-controlled fine-tuning and weight constraints **before consumer
+  quantization**. We constructed benign evaluation attacks; we did not discover pre-existing backdoors
+  in public models. Full-precision target suppression is not a certificate of general safety or utility.
+- The prompt-based CLI and the exp.19 research detector are different evaluations. Exp.19 scores
+  `R = W − Q(W)` without supplying the trigger or a clean pre-attack twin, but it still needs access to
+  the suspect full-precision weights and examines the last three modified `down_proj` layers.
+- The historical score ranges were `bd_hm: 23.6–26.8`, `bd: 18.3–25.0`,
+  `proj_new: 7.4–16.1`, `proj_self: 8.4–13.0`, and public `clean: 1.5–1.75`.
+  The recorded AUROC of 1.00 for `bd` versus `proj_new` describes ranking in this small sample,
+  **not 100% classification accuracy**. The original flag rule also flagged all trained controls
+  (5/5 per group) and one of two public controls.
+- The [local implementation audit summary](#implementation-audit-summary) found that real deployment checks did not
+  gate attack validity and that the inferred-cell projection/null did not guarantee actual NF4 invariance.
+  The null also does not preserve the original residual histogram. These findings require revalidation;
+  the historical scores are not confirmed detector performance. The impact on the old numerical results
+  has not been recomputed from raw run artifacts.
+- Exp.15–18's historical benign arms are not equivalent to the precision-consistent `proj_new` control.
+  Exp.20's intended-method interpretation is on hold because of implementation issues. Neither the
+  positive observations nor the failures establish a general claim about all quantization backdoors.
+- Next steps are deployment-validity and invariant checks, procedure-matched controls, independent
+  calibration/evaluation, and external-attack validation. Implementation fixes or submitted jobs are
+  not experimental evidence of detection success.
